@@ -53,7 +53,7 @@ def _read_coeffs_table(coefficients):
         path = Path(coefficients)
         if not path.exists():
             raise FileNotFoundError(f"Coefficient table not found: {path}")
-        return pd.read_csv(path)
+        return pd.read_csv(path, float_precision="round_trip")
 
     raise TypeError("coefficients must be a pandas DataFrame or path to a CSV table")
 
@@ -70,7 +70,75 @@ def _parse_coefficients(coefficients, method=None):
             "dry": dict(coefficients["dry"]),
         }
 
+    source_name = None
+    if isinstance(coefficients, (str, Path)):
+        source_name = Path(coefficients).name.lower()
+        if source_name == "coefficients_exp.csv":
+            raise ValueError(
+                "rOPTRAM exponential coefficient files are not supported"
+            )
+
     table = _read_coeffs_table(coefficients)
+
+    linear_columns = [
+        "intercept_dry",
+        "slope_dry",
+        "intercept_wet",
+        "slope_wet",
+    ]
+    polynomial_columns = [
+        "alpha_dry",
+        "beta1_dry",
+        "beta2_dry",
+        "alpha_wet",
+        "beta1_wet",
+        "beta2_wet",
+    ]
+
+    if list(table.columns) == linear_columns:
+        if method is None and source_name != "coefficients_lin.csv":
+            raise ValueError(
+                "The rOPTRAM four-column coefficient schema is ambiguous; "
+                "pass method='linear' or use a file named coefficients_lin.csv"
+            )
+        if method is not None and method.lower() != "linear":
+            raise ValueError(
+                "The rOPTRAM four-column coefficient schema is supported only "
+                "with method='linear'"
+            )
+        row = table.iloc[0]
+        return {
+            "method": "linear",
+            "wet": {
+                "intercept": float(row["intercept_wet"]),
+                "slope": float(row["slope_wet"]),
+            },
+            "dry": {
+                "intercept": float(row["intercept_dry"]),
+                "slope": float(row["slope_dry"]),
+            },
+        }
+
+    if list(table.columns) == polynomial_columns:
+        if method is not None and method.lower() != "polynomial":
+            raise ValueError(
+                "The rOPTRAM polynomial coefficient schema requires "
+                "method='polynomial'"
+            )
+        row = table.iloc[0]
+        return {
+            "method": "polynomial",
+            "wet": {
+                "alpha": float(row["alpha_wet"]),
+                "beta_1": float(row["beta1_wet"]),
+                "beta_2": float(row["beta2_wet"]),
+            },
+            "dry": {
+                "alpha": float(row["alpha_dry"]),
+                "beta_1": float(row["beta1_dry"]),
+                "beta_2": float(row["beta2_dry"]),
+            },
+        }
 
     required = {"edge"}
     missing = required.difference(table.columns)

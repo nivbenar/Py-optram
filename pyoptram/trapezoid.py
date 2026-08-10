@@ -115,6 +115,42 @@ def _fit_edge(x, y, method):
     return coeffs, fit, rmse
 
 
+def _roptram_coefficients(coeffs_df, method):
+    """Format fitted coefficients using rOPTRAM's one-row CSV schema."""
+    wet = coeffs_df[coeffs_df["edge"] == "wet"].iloc[0]
+    dry = coeffs_df[coeffs_df["edge"] == "dry"].iloc[0]
+
+    if method == "linear":
+        return pd.DataFrame(
+            [
+                {
+                    "intercept_dry": dry["intercept"],
+                    "slope_dry": dry["slope"],
+                    "intercept_wet": wet["intercept"],
+                    "slope_wet": wet["slope"],
+                }
+            ]
+        )
+
+    if method == "polynomial":
+        return pd.DataFrame(
+            [
+                {
+                    "alpha_dry": dry["alpha"],
+                    "beta1_dry": dry["beta_1"],
+                    "beta2_dry": dry["beta_2"],
+                    "alpha_wet": wet["alpha"],
+                    "beta1_wet": wet["beta_1"],
+                    "beta2_wet": wet["beta_2"],
+                }
+            ]
+        )
+
+    raise ValueError(
+        "rOPTRAM compatibility export supports only linear and polynomial methods"
+    )
+
+
 # Derive wet/dry trapezoid coefficients from a VI-STR dataframe.
 def optram_wetdry_coefficients(
     full_df,
@@ -129,6 +165,7 @@ def optram_wetdry_coefficients(
     rm_low_vi=False,
     remove_outliers=True,
     return_outputs=False,
+    export_roptram=False,
 ):
     data = _clean_vi_str(full_df, vi_col, str_col, rm_low_vi)
     edges_df = _edge_points(
@@ -167,6 +204,12 @@ def optram_wetdry_coefficients(
         edges_df.to_csv(output_dir / "trapezoid_points.csv", index=False)
         coeffs_df.to_csv(output_dir / "wetdry_coefficients.csv", index=False)
         rmse_df.to_csv(output_dir / "wetdry_rmse.csv", index=False)
+        if export_roptram:
+            roptram_coeffs = _roptram_coefficients(coeffs_df, method)
+            suffix = "lin" if method == "linear" else "pol"
+            roptram_coeffs.to_csv(
+                output_dir / f"coefficients_{suffix}.csv", index=False
+            )
 
     if return_outputs:
         return rmse_df, coeffs_df, edges_df
