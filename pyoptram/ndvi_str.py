@@ -38,16 +38,77 @@ def _as_path_list(paths, name):
     return path_list
 
 
-def _as_optional_path_list(paths, name, expected_len):
-    # Same as _as_path_list, but allows None and enforces a matching length.
+def _as_optional_path_list(paths, name):
+    # Same as _as_path_list, but allows None.
     if paths is None:
         return None
 
-    path_list = _as_path_list(paths, name)
-    if len(path_list) != expected_len:
-        raise ValueError(f"{name} must have the same length as ndvi_paths")
+    return _as_path_list(paths, name)
 
-    return path_list
+
+def _scene_key(path):
+    """Return the filename portion shared by products from one scene."""
+    stem = Path(path).stem
+    _, separator, key = stem.partition("_")
+    if not separator or not key:
+        raise ValueError(
+            f"Cannot derive a scene key from filename {Path(path).name!r}; "
+            "expected a product prefix followed by '_'"
+        )
+    return key
+
+
+def _paths_by_scene(paths, name):
+    """Index paths by scene key, rejecting ambiguous product filenames."""
+    indexed = {}
+    for path in paths:
+        key = _scene_key(path)
+        if key in indexed:
+            raise ValueError(
+                f"Cannot match {name} uniquely for scene {key!r}: "
+                f"{indexed[key]} and {path}"
+            )
+        indexed[key] = path
+    return indexed
+
+
+def _pair_scene_paths(ndvi_paths, str_paths, scl_paths=None):
+    """Pair required scene products by filename, preserving STR order."""
+    ndvi_by_scene = _paths_by_scene(ndvi_paths, "VI files")
+    str_by_scene = _paths_by_scene(str_paths, "STR files")
+
+    ndvi_keys = set(ndvi_by_scene)
+    str_keys = set(str_by_scene)
+    if ndvi_keys != str_keys:
+        missing_vi = sorted(str_keys - ndvi_keys)
+        missing_str = sorted(ndvi_keys - str_keys)
+        details = []
+        if missing_vi:
+            details.append(f"missing VI for scenes: {missing_vi}")
+        if missing_str:
+            details.append(f"missing STR for scenes: {missing_str}")
+        raise ValueError("Cannot match VI and STR files uniquely; " + "; ".join(details))
+
+    scl_by_scene = None
+    if scl_paths is not None:
+        scl_by_scene = _paths_by_scene(scl_paths, "SCL files")
+        scl_keys = set(scl_by_scene)
+        if scl_keys != str_keys:
+            missing_scl = sorted(str_keys - scl_keys)
+            extra_scl = sorted(scl_keys - str_keys)
+            details = []
+            if missing_scl:
+                details.append(f"missing SCL for scenes: {missing_scl}")
+            if extra_scl:
+                details.append(f"SCL has no VI/STR scene: {extra_scl}")
+            raise ValueError("Cannot match SCL files uniquely; " + "; ".join(details))
+
+    pairs = []
+    for str_path in str_paths:
+        key = _scene_key(str_path)
+        scl_path = scl_by_scene[key] if scl_by_scene is not None else None
+        pairs.append((ndvi_by_scene[key], str_path, scl_path))
+    return pairs
 
 
 def _read_band(path):
@@ -92,15 +153,15 @@ def _file_metadata(path):
     # used when no scene_metadata record is available for this file).
     name = Path(path).stem
     timestamp_match = re.search(
-        r"_(\d{4}-\d{2}-\d{2})T(\d{2}-\d{2}-\d{2}(?:\.\d+)?)",
+        r"_(\d{4}-\d{2}-\d{2})(?:T(\d{2}-\d{2}-\d{2}(?:\.\d+)?))?",
         name,
     )
-    tile_match = re.search(r"_T(\d{2}[A-Z]{3})_", name)
+    tile_match = re.search(r"_T(\d{2}[A-Z]{3})(?:_|$)", name)
 
     timestamp = pd.NaT
     if timestamp_match:
         date_text = timestamp_match.group(1)
-        time_text = timestamp_match.group(2).replace("-", ":")
+        time_text = (timestamp_match.group(2) or "00-00-00").replace("-", ":")
         timestamp = pd.to_datetime(f"{date_text} {time_text}", utc=True)
 
     month = timestamp.month if pd.notna(timestamp) else pd.NA
@@ -253,7 +314,8 @@ def optram_ndvi_str(
     Parameters
     ----------
     ndvi_paths, str_paths : path or list of paths
-        Matching NDVI and STR rasters, one pair per scene.
+        VI and STR rasters paired by the filename portion after the product
+        prefix. Every scene must have exactly one VI and one STR file.
     output_csv : path, optional
         If given, write the resulting dataframe to this CSV path.
     rm_low_vi : bool
@@ -287,15 +349,19 @@ def optram_ndvi_str(
         being parsed from filenames, which is more robust.
     random_state : int, optional
         Seed used for max_rows downsampling.
+
+    Raises
+    ------
+    ValueError
+        If required VI, STR, or supplied SCL files cannot be matched uniquely
+        by scene filename.
     """
     # Prepare input paths.
     ndvi_path_list = _as_path_list(ndvi_paths, "ndvi_paths")
     str_path_list = _as_path_list(str_paths, "str_paths")
 
-    if len(ndvi_path_list) != len(str_path_list):
-        raise ValueError("ndvi_paths and str_paths must have the same length")
-
-    scl_path_list = _as_optional_path_list(scl_paths, "scl_paths", len(ndvi_path_list))
+    scl_path_list = _as_optional_path_list(scl_paths, "scl_paths")
+    scene_pairs = _pair_scene_paths(ndvi_path_list, str_path_list, scl_path_list)
 
     if max_tbl_size is not None and max_tbl_size < 1:
         raise ValueError("max_tbl_size must be a positive integer")
@@ -310,7 +376,7 @@ def optram_ndvi_str(
     total_rows = 0
     rasterized_features_cache = {}
 
-    for source_index, (ndvi_path, str_path) in enumerate(zip(ndvi_path_list, str_path_list)):
+    for source_index, (ndvi_path, str_path, scl_path) in enumerate(scene_pairs):
         if max_tbl_size is not None and total_rows >= max_tbl_size:
             break
 
@@ -333,7 +399,6 @@ def optram_ndvi_str(
 
         scl_array = None
         if scl_path_list is not None:
-            scl_path = scl_path_list[source_index]
             scl_array, scl_profile = _read_scl(scl_path)
             _check_same_grid(ndvi_profile, scl_profile, ndvi_path, scl_path)
             valid &= np.isin(scl_array, list(scl_keep_set))

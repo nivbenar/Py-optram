@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 import rasterio
 from rasterio.transform import from_origin
 
@@ -189,3 +190,91 @@ def test_optram_ndvi_str_max_rows_downsamples_final_table(tmp_path):
     )
 
     assert len(dataframe) == 2
+
+
+def test_optram_ndvi_str_pairs_files_by_scene_name_in_str_order(tmp_path):
+    ndvi_a = tmp_path / "NDVI_a.tif"
+    ndvi_b = tmp_path / "NDVI_b.tif"
+    str_a = tmp_path / "STR_a.tif"
+    str_b = tmp_path / "STR_b.tif"
+
+    _write_single_band_tif(ndvi_a, np.array([[0.1]], dtype=np.float32))
+    _write_single_band_tif(ndvi_b, np.array([[0.9]], dtype=np.float32))
+    _write_single_band_tif(str_a, np.array([[1.0]], dtype=np.float32))
+    _write_single_band_tif(str_b, np.array([[2.0]], dtype=np.float32))
+
+    dataframe = optram_ndvi_str(
+        ndvi_paths=[ndvi_a, ndvi_b],
+        str_paths=[str_b, str_a],
+    )
+
+    np.testing.assert_allclose(dataframe["NDVI"], [0.9, 0.1])
+    np.testing.assert_allclose(dataframe["STR"], [2.0, 1.0])
+    assert dataframe["source_index"].tolist() == [0, 1]
+
+
+@pytest.mark.parametrize(
+    ("ndvi_names", "str_names", "message"),
+    [
+        (["NDVI_a.tif"], ["STR_b.tif"], "missing VI.*missing STR"),
+        (["NDVI_a.tif", "SAVI_a.tif"], ["STR_a.tif"], "Cannot match VI files uniquely"),
+    ],
+)
+def test_optram_ndvi_str_rejects_missing_or_ambiguous_pairs(
+    tmp_path, ndvi_names, str_names, message
+):
+    ndvi_paths = []
+    for name in ndvi_names:
+        path = tmp_path / name
+        _write_single_band_tif(path, np.array([[0.5]], dtype=np.float32))
+        ndvi_paths.append(path)
+
+    str_paths = []
+    for name in str_names:
+        path = tmp_path / name
+        _write_single_band_tif(path, np.array([[2.0]], dtype=np.float32))
+        str_paths.append(path)
+
+    with pytest.raises(ValueError, match=message):
+        optram_ndvi_str(ndvi_paths, str_paths)
+
+
+def test_optram_ndvi_str_rejects_unmatched_scl_scene(tmp_path):
+    ndvi_path = tmp_path / "NDVI_a.tif"
+    str_path = tmp_path / "STR_a.tif"
+    scl_path = tmp_path / "SCL_b.tif"
+    _write_single_band_tif(ndvi_path, np.array([[0.5]], dtype=np.float32))
+    _write_single_band_tif(str_path, np.array([[2.0]], dtype=np.float32))
+    _write_single_band_tif(scl_path, np.array([[4]], dtype=np.uint8), dtype="uint8")
+
+    with pytest.raises(ValueError, match="missing SCL.*no VI/STR scene"):
+        optram_ndvi_str([ndvi_path], [str_path], scl_paths=[scl_path])
+
+
+def test_optram_ndvi_str_parses_roptram_date_and_tile_filename(tmp_path):
+    ndvi_path = tmp_path / "NDVI_2022-11-11_T36RXV.tif"
+    str_path = tmp_path / "STR_2022-11-11_T36RXV.tif"
+    _write_single_band_tif(ndvi_path, np.array([[0.5]], dtype=np.float32))
+    _write_single_band_tif(str_path, np.array([[2.0]], dtype=np.float32))
+
+    dataframe = optram_ndvi_str([ndvi_path], [str_path])
+
+    assert dataframe.loc[0, "TimestampUTC"] == pd.Timestamp("2022-11-11T00:00:00Z")
+    assert dataframe.loc[0, "Month"] == 11
+    assert dataframe.loc[0, "Tile"] == "36RXV"
+
+
+def test_optram_ndvi_str_writes_requested_csv_and_creates_parent(tmp_path):
+    ndvi_path = tmp_path / "NDVI_a.tif"
+    str_path = tmp_path / "STR_a.tif"
+    output_csv = tmp_path / "tables" / "vi_str.csv"
+    _write_single_band_tif(ndvi_path, np.array([[0.5]], dtype=np.float32))
+    _write_single_band_tif(str_path, np.array([[2.0]], dtype=np.float32))
+
+    dataframe = optram_ndvi_str([ndvi_path], [str_path], output_csv=output_csv)
+
+    assert output_csv.is_file()
+    persisted = pd.read_csv(output_csv)
+    assert list(persisted.columns) == list(dataframe.columns)
+    np.testing.assert_allclose(persisted["NDVI"], dataframe["NDVI"])
+    np.testing.assert_allclose(persisted["STR"], dataframe["STR"])

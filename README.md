@@ -98,6 +98,41 @@ df = optram_ndvi_str(
 )
 ```
 
+VI, STR, and optional SCL files are paired by the filename portion after the
+product prefix (for example, `NDVI_2022-11-11_T36RXV.tif` pairs with
+`STR_2022-11-11_T36RXV.tif`). Pairing is deterministic and follows STR input
+order. Missing or duplicate scene products raise `ValueError`; the function
+never silently runs a partial set of scenes. Use `output_csv` to persist the
+returned table to a caller-selected CSV path.
+
+### VI–STR compatibility notes
+
+The Python workflow intentionally retains its existing behavior where it
+differs from rOPTRAM:
+
+- Python returns `X`, `Y`, and `NDVI` plus pixel/source provenance columns;
+  rOPTRAM's implementation returns lowercase `x`, `y`, and generic `VI`.
+- Python requires identical VI/STR grids. rOPTRAM joins raster values by
+  coordinates and can therefore create a partial intersection.
+- Python always filters non-finite values, VI outside `[-1, 1]`, and
+  non-positive STR. Its optional low-VI, high-STR, SCL, and feature filtering
+  behavior is unchanged.
+- Python's `max_tbl_size` is an optional row-order assembly cap and `max_rows`
+  is an optional final random sample. rOPTRAM distributes its table-size cap
+  across scenes and randomly samples each oversized scene.
+- Python writes a caller-named CSV only when `output_csv` is supplied;
+  rOPTRAM always writes `VI_STR_data.rds` to its output directory.
+- Python returns an empty dataframe with a stable schema when matched scenes
+  contain no valid pixels. rOPTRAM generally skips empty scenes and uses
+  `NULL` for several empty-input cases.
+- Python feature input filters pixels to the supplied geometries and adds
+  `Feature_ID`; rOPTRAM's AOI path is intended primarily to label features for
+  plot coloring.
+
+These are documented compatibility differences. This milestone does not
+change scientific defaults, formulas, filtering thresholds, mask semantics,
+sampling behavior, or calculation order.
+
 ## Available API
 
 - `get_cdse_token`
