@@ -1,19 +1,11 @@
 """
 Notebook-style pyOPTRAM test workflow saved as a Python script.
 
-Run this after setting CDSE_CLIENT_ID and CDSE_CLIENT_SECRET in your
-environment. Do not write credentials directly in this file.
+Run this after storing credentials once with store_cdse_credentials().
 """
-
-import os
 
 import matplotlib.pyplot as plt
 import pyoptram as op
-
-
-# Get credentials from environment variables.
-client_id = os.environ["CDSE_CLIENT_ID"]
-client_secret = os.environ["CDSE_CLIENT_SECRET"]
 
 
 # Download paired NDVI and STR rasters.
@@ -22,8 +14,6 @@ results = op.acquire_optram_inputs(
     from_date="2025-12-01",
     to_date="2026-03-15",
     output_dir="outputs_yuma",
-    client_id=client_id,
-    client_secret=client_secret,
     veg_index="NDVI",
     swir_band=12,
     max_cloud=20,

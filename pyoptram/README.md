@@ -29,6 +29,13 @@ from pyoptram import (
     optram_calculate_soil_moisture,
     optram_ndvi_str,
     optram_wetdry_coefficients,
+    store_cdse_credentials,
+)
+
+# One-time setup. OAUTH_CLIENTID and OAUTH_SECRET may be used instead.
+store_cdse_credentials(
+    client_id="YOUR_CDSE_CLIENT_ID",
+    client_secret="YOUR_CDSE_CLIENT_SECRET",
 )
 
 acquired = acquire_optram_inputs(
@@ -36,8 +43,6 @@ acquired = acquire_optram_inputs(
     from_date="2024-01-01",
     to_date="2024-03-31",
     output_dir="data/optram",
-    client_id="YOUR_CDSE_CLIENT_ID",
-    client_secret="YOUR_CDSE_CLIENT_SECRET",
     max_cloud=20,
     only_vi_str=True,
     download_scl=True,

@@ -1,4 +1,9 @@
-from .acquire import acquire_optram_inputs, get_cdse_token
+from .acquire import (
+    acquire_optram_inputs,
+    get_cdse_token,
+    retrieve_cdse_credentials,
+    store_cdse_credentials,
+)
 from .ndvi_str import optram_ndvi_str
 from .soil_moisture import calculate_soil_moisture, optram_calculate_soil_moisture
 from .str_transform_calculations import calculate_str, optram_calculate_str
@@ -11,6 +16,8 @@ from .vegetation_index import calculate_vi
 __all__ = [
     "acquire_optram_inputs",
     "get_cdse_token",
+    "retrieve_cdse_credentials",
+    "store_cdse_credentials",
     "optram_ndvi_str",
     "calculate_soil_moisture",
     "optram_calculate_soil_moisture",

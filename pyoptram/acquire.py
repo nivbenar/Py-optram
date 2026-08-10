@@ -1,6 +1,9 @@
 from datetime import datetime
 from pathlib import Path
 import json
+import os
+import platform
+import warnings
 
 import requests
 
@@ -12,6 +15,78 @@ TOKEN_URL = (
 CATALOG_URL = "https://sh.dataspace.copernicus.eu/api/v1/catalog/1.0.0/search"
 PROCESS_URL = "https://sh.dataspace.copernicus.eu/api/v1/process"
 DEFAULT_MAX_SIZE = 2500
+
+
+def _cdse_credentials_file():
+    system = platform.system()
+    if system == "Windows":
+        base = os.environ.get("LOCALAPPDATA")
+        if not base:
+            return None
+        credentials_dir = Path(base) / "CDSE"
+    elif system == "Linux":
+        credentials_dir = Path.home() / ".CDSE"
+    elif system == "Darwin":
+        credentials_dir = Path.home() / "Library" / "Preferences" / ".CDSE"
+    else:
+        return None
+    return credentials_dir / "cdse_credentials.json"
+
+
+def store_cdse_credentials(client_id=None, client_secret=None):
+    """Store CDSE OAuth credentials in rOPTRAM's platform-specific file."""
+    credentials_file = _cdse_credentials_file()
+    if credentials_file is None:
+        warnings.warn(
+            "Platform is not identified. No credentials are saved",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
+
+    if client_id is None or client_secret is None:
+        client_id = os.environ.get("OAUTH_CLIENTID", "")
+        client_secret = os.environ.get("OAUTH_SECRET", "")
+
+    if not client_id or not client_secret:
+        return None
+
+    credentials_file.parent.mkdir(parents=True, exist_ok=True)
+    credentials = [{"clientid": client_id, "secret": client_secret}]
+    credentials_file.write_text(json.dumps(credentials), encoding="utf-8")
+    return None
+
+
+def retrieve_cdse_credentials():
+    """Retrieve CDSE OAuth credentials stored by Py-optram or rOPTRAM."""
+    credentials_file = _cdse_credentials_file()
+    if credentials_file is None:
+        warnings.warn(
+            "Platform is not identified. No credentials are available",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
+    if not credentials_file.exists():
+        warnings.warn(
+            f"No credentials file found at {credentials_file}. "
+            "Credentials are not available.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
+
+    credentials = json.loads(credentials_file.read_text(encoding="utf-8"))
+    if not isinstance(credentials, list) or not credentials:
+        return None
+    stored = credentials[0]
+    if not isinstance(stored, dict):
+        return None
+    client_id = stored.get("clientid")
+    client_secret = stored.get("secret")
+    if not client_id or not client_secret:
+        return None
+    return {"clientid": client_id, "secret": client_secret}
 
 
 # Raise HTTP errors with the server response body included.
@@ -38,7 +113,13 @@ def get_cdse_token(client_id, client_secret):
         },
         timeout=30,
     )
-    _raise_for_status(response, "CDSE token request")
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        raise requests.HTTPError(
+            f"CDSE token request failed with HTTP {response.status_code}",
+            response=response,
+        ) from exc
     return response.json()["access_token"]
 
 
@@ -405,8 +486,9 @@ def acquire_optram_inputs(
     from_date,
     to_date,
     output_dir,
-    client_id,
-    client_secret,
+    client_id=None,
+    client_secret=None,
+    save_creds=True,
     veg_index="NDVI",
     swir_band=11,
     max_cloud=20,
@@ -441,7 +523,20 @@ def acquire_optram_inputs(
 
     aoi_geometry = load_aoi(aoi)
 
+    explicit_credentials = client_id is not None and client_secret is not None
+    if not explicit_credentials:
+        stored_credentials = retrieve_cdse_credentials()
+        if stored_credentials is None:
+            raise ValueError(
+                "No CDSE credentials are available. Supply client_id and "
+                "client_secret, or call store_cdse_credentials() first."
+            )
+        client_id = stored_credentials["clientid"]
+        client_secret = stored_credentials["secret"]
+
     token = get_cdse_token(client_id, client_secret)
+    if explicit_credentials and save_creds:
+        store_cdse_credentials(client_id, client_secret)
     folders = prepare_output_folders(
         output_dir,
         veg_index=veg_index,
