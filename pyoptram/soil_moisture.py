@@ -165,7 +165,7 @@ def _parse_coefficients(coefficients, method=None):
     return {"method": method, "wet": wet, "dry": dry}
 
 
-def calculate_soil_moisture(vi, str_array, coefficients, method=None, porosity=1.0, clip=True):
+def calculate_soil_moisture(vi, str_array, coefficients, method=None, porosity=0.4, clip=False):
     vi = np.asarray(vi, dtype=np.float32)
     str_array = np.asarray(str_array, dtype=np.float32)
 
@@ -206,8 +206,8 @@ def optram_calculate_soil_moisture(
     coefficients,
     output_dir,
     method=None,
-    porosity=1.0,
-    clip=True,
+    porosity=0.4,
+    clip=False,
 ):
     vi_path_list = _as_path_list(vi_paths, "vi_paths")
     str_path_list = _as_path_list(str_paths, "str_paths")

@@ -1,6 +1,10 @@
+import inspect
+
+import numpy as np
 import pandas as pd
 import pytest
 
+from pyoptram import calculate_soil_moisture, optram_calculate_soil_moisture
 from pyoptram.soil_moisture import _parse_coefficients
 
 
@@ -92,3 +96,32 @@ def test_rejects_roptram_exponential_coefficient_file(tmp_path):
 
     with pytest.raises(ValueError, match="exponential coefficient files are not supported"):
         _parse_coefficients(path)
+
+
+def test_public_soil_moisture_defaults_match_roptram():
+    for function in (calculate_soil_moisture, optram_calculate_soil_moisture):
+        parameters = inspect.signature(function).parameters
+        assert parameters["porosity"].default == 0.4
+        assert parameters["clip"].default is False
+
+
+def test_default_soil_moisture_equals_explicit_roptram_behavior_without_clipping():
+    vi = np.array([0.0, 0.0], dtype=np.float32)
+    str_array = np.array([-1.0, 3.0], dtype=np.float32)
+    coefficients = {
+        "method": "linear",
+        "dry": {"intercept": 2.0, "slope": 0.0},
+        "wet": {"intercept": 0.0, "slope": 0.0},
+    }
+
+    default = calculate_soil_moisture(vi, str_array, coefficients)
+    explicit = calculate_soil_moisture(
+        vi,
+        str_array,
+        coefficients,
+        porosity=0.4,
+        clip=False,
+    )
+
+    np.testing.assert_array_equal(default, explicit)
+    np.testing.assert_allclose(default, [0.6, -0.2])

@@ -66,6 +66,9 @@ sm_paths = optram_calculate_soil_moisture(
 )
 ```
 
+Soil-moisture calculations default to rOPTRAM's `porosity=0.4` and do not
+clip values. Pass `clip=True` explicitly when bounded output is desired.
+
 ## rOPTRAM-like `optram_ndvi_str` options
 
 The NDVI/STR table builder now supports quality masking, feature extraction, and size caps:
