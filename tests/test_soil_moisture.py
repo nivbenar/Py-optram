@@ -8,16 +8,13 @@ from pyoptram import calculate_soil_moisture, optram_calculate_soil_moisture
 from pyoptram.soil_moisture import _parse_coefficients
 
 
+### rOPTRAM coefficient compatibility
+
 def test_imports_roptram_linear_csv_without_changing_values(tmp_path):
     values = [-0.154980123174297, 3.31268567825634, -0.278092260372729, 6.78590775191129]
     table = pd.DataFrame(
         [values],
-        columns=[
-            "intercept_dry",
-            "slope_dry",
-            "intercept_wet",
-            "slope_wet",
-        ],
+        columns=["intercept_dry", "slope_dry", "intercept_wet", "slope_wet"],
     )
     path = tmp_path / "coefficients_lin.csv"
     table.to_csv(path, index=False)
@@ -66,12 +63,7 @@ def test_imports_roptram_polynomial_csv_without_changing_values(tmp_path):
 def test_wide_four_column_dataframe_requires_explicit_linear_method():
     table = pd.DataFrame(
         [[1.0, 2.0, 3.0, 4.0]],
-        columns=[
-            "intercept_dry",
-            "slope_dry",
-            "intercept_wet",
-            "slope_wet",
-        ],
+        columns=["intercept_dry", "slope_dry", "intercept_wet", "slope_wet"],
     )
 
     with pytest.raises(ValueError, match="ambiguous"):
@@ -86,17 +78,14 @@ def test_rejects_roptram_exponential_coefficient_file(tmp_path):
     path = tmp_path / "coefficients_exp.csv"
     pd.DataFrame(
         [[1.0, 2.0, 3.0, 4.0]],
-        columns=[
-            "intercept_dry",
-            "slope_dry",
-            "intercept_wet",
-            "slope_wet",
-        ],
+        columns=["intercept_dry", "slope_dry", "intercept_wet", "slope_wet"],
     ).to_csv(path, index=False)
 
     with pytest.raises(ValueError, match="exponential coefficient files are not supported"):
         _parse_coefficients(path)
 
+
+### Public soil-moisture behavior
 
 def test_public_soil_moisture_defaults_match_roptram():
     for function in (calculate_soil_moisture, optram_calculate_soil_moisture):
@@ -115,13 +104,7 @@ def test_default_soil_moisture_equals_explicit_roptram_behavior_without_clipping
     }
 
     default = calculate_soil_moisture(vi, str_array, coefficients)
-    explicit = calculate_soil_moisture(
-        vi,
-        str_array,
-        coefficients,
-        porosity=0.4,
-        clip=False,
-    )
+    explicit = calculate_soil_moisture(vi, str_array, coefficients, porosity=0.4, clip=False)
 
     np.testing.assert_array_equal(default, explicit)
     np.testing.assert_allclose(default, [0.6, -0.2])

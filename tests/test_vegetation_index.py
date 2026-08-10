@@ -4,6 +4,8 @@ import pytest
 from pyoptram import calculate_vi
 
 
+### Formula fixtures
+
 def _scale(band, scale_factor=2**15):
     return 255 * (band - np.nanmin(band)) / scale_factor
 
@@ -32,20 +34,17 @@ def test_calculate_vi_matches_roptram_formulas(veg_index):
         expected = {
             "NDVI": (nir - red) / (nir + red),
             "SAVI": 1.5 * (nir - red) / (nir + red + 0.5),
-            "MSAVI": (
-                2 * nir
-                + 1
-                - np.sqrt((2 * nir + 1) ** 2 - 8 * (nir - red))
-            )
-            / 2,
+            "MSAVI": (2 * nir + 1 - np.sqrt((2 * nir + 1) ** 2 - 8 * (nir - red))) / 2,
             "CI": 1 - (red - blue) / (red + blue),
-            "BSCI": (1 - 2 * (red - green))
-            / np.nanmean(np.stack([green, red, nir]), axis=0),
+            "BSCI": ((1 - 2 * (red - green))
+                     / np.nanmean(np.stack([green, red, nir]), axis=0)),
         }[veg_index]
 
     result = calculate_vi(stack, veg_index=veg_index)
     np.testing.assert_allclose(result, expected, equal_nan=True)
 
+
+### Scaling and band selection
 
 def test_calculate_vi_applies_approved_single_scaling_pass():
     stack = _stack()
@@ -55,9 +54,7 @@ def test_calculate_vi_applies_approved_single_scaling_pass():
 
     red_twice = _scale(red_once)
     nir_twice = _scale(nir_once)
-    accidental_roptram_result = (
-        1.5 * (nir_twice - red_twice) / (nir_twice + red_twice + 0.5)
-    )
+    accidental_roptram_result = 1.5 * (nir_twice - red_twice) / (nir_twice + red_twice + 0.5)
 
     result = calculate_vi(stack, veg_index="SAVI")
     np.testing.assert_allclose(result, expected_once, equal_nan=True)
@@ -76,12 +73,7 @@ def test_calculate_vi_uses_one_based_custom_bands_and_scale_factor():
     with np.errstate(divide="ignore", invalid="ignore"):
         expected = (nir - red) / (nir + red)
 
-    result = calculate_vi(
-        stack,
-        redband=1,
-        nirband=2,
-        scale_factor=255,
-    )
+    result = calculate_vi(stack, redband=1, nirband=2, scale_factor=255)
     np.testing.assert_allclose(result, expected, equal_nan=True)
 
 
@@ -95,6 +87,8 @@ def test_calculate_vi_allows_small_stack_when_required_bands_exist():
     result = calculate_vi(stack, redband=1, nirband=2)
     assert result.shape == (1, 3)
 
+
+### NaN handling and validation
 
 def test_calculate_vi_preserves_nan_values():
     stack = np.array(
@@ -121,9 +115,7 @@ def test_calculate_vi_returns_nan_for_zero_denominator():
 
 def test_calculate_vi_msavi_keeps_nan_input_as_nan():
     stack = np.array([[[0.0, 1.0]], [[0.0, np.nan]]])
-    result = calculate_vi(
-        stack, veg_index="MSAVI", redband=1, nirband=2, scale_factor=1
-    )
+    result = calculate_vi(stack, veg_index="MSAVI", redband=1, nirband=2, scale_factor=1)
     assert np.isnan(result[0, 1])
 
 

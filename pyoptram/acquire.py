@@ -18,6 +18,8 @@ PROCESS_URL = "https://sh.dataspace.copernicus.eu/api/v1/process"
 DEFAULT_MAX_SIZE = 2500
 
 
+### Credential storage and retrieval
+
 def _cdse_credentials_file():
     system = platform.system()
     if system == "Windows":
@@ -110,6 +112,8 @@ def retrieve_cdse_credentials():
     return {"clientid": client_id, "secret": client_secret}
 
 
+### CDSE request helpers
+
 # Raise HTTP errors with the server response body included.
 def _raise_for_status(response, context):
     try:
@@ -143,6 +147,8 @@ def get_cdse_token(client_id, client_secret):
         ) from exc
     return response.json()["access_token"]
 
+
+### Input validation and preparation
 
 # Make sure a date string is formatted as YYYY-MM-DD.
 def validate_date(date_text, name):
@@ -226,19 +232,12 @@ def load_aoi(aoi):
 
 
 # Create output folders for VI, STR, and optionally BOA/SCL rasters.
-def prepare_output_folders(
-    output_dir,
-    veg_index="NDVI",
-    only_vi_str=False,
-    download_scl=False,
-):
+def prepare_output_folders(output_dir, veg_index="NDVI", only_vi_str=False,
+                           download_scl=False):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    folders = {
-        "vi": output_dir / veg_index,
-        "str": output_dir / "STR",
-    }
+    folders = {"vi": output_dir / veg_index, "str": output_dir / "STR"}
 
     if not only_vi_str:
         folders["boa"] = output_dir / "BOA"
@@ -251,6 +250,8 @@ def prepare_output_folders(
 
     return folders
 
+
+### Sentinel Hub scripts and catalog operations
 
 # Return the Sentinel Hub evalscript for a supported VI, STR, BOA, or SCL.
 def load_evalscript(script_name, swir_band=11, scl_mask=False, scl_keep=None):
@@ -485,9 +486,7 @@ def download_index(
 
 
 # Build a small metadata record for a downloaded scene.
-def _scene_record(
-    scene, veg_index, vi_path, str_path, boa_path=None, scl_path=None
-):
+def _scene_record(scene, veg_index, vi_path, str_path, boa_path=None, scl_path=None):
     properties = scene.get("properties", {})
     record = {
         "id": scene.get("id"),
@@ -501,6 +500,8 @@ def _scene_record(
     record[veg_index] = vi_path
     return record
 
+
+### OPTRAM acquisition workflow
 
 def acquire_optram_inputs(
     aoi,

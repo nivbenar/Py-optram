@@ -9,6 +9,8 @@ from pyoptram import optram_ndvi_str
 _TRANSFORM = from_origin(10.0, 20.0, 1.0, 1.0)
 
 
+### Raster test helpers
+
 def _write_single_band_tif(path, array, dtype="float32"):
     profile = {
         "driver": "GTiff",
@@ -24,6 +26,8 @@ def _write_single_band_tif(path, array, dtype="float32"):
     with rasterio.open(path, "w", **profile) as dst:
         dst.write(array.astype(dtype), 1)
 
+
+### Table construction and filtering
 
 def test_optram_ndvi_str_builds_dataframe_and_filters_zero_str(tmp_path):
     # NDVI and STR rasters become one dataframe with invalid STR zero removed.
@@ -191,6 +195,8 @@ def test_optram_ndvi_str_max_rows_downsamples_final_table(tmp_path):
 
     assert len(dataframe) == 2
 
+
+### Scene matching and output
 
 def test_optram_ndvi_str_pairs_files_by_scene_name_in_str_order(tmp_path):
     ndvi_a = tmp_path / "NDVI_a.tif"

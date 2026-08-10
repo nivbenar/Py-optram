@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 
 
+### Edge-point preparation
+
 # Keep finite VI/STR values and optionally remove very low VI values.
 def _clean_vi_str(dataframe, vi_col, str_col, rm_low_vi):
     data = dataframe[[vi_col, str_col]].dropna().copy()
@@ -75,6 +77,8 @@ def _edge_points(
 
     return edges
 
+
+### Edge fitting and export
 
 # Predict STR values for one fitted edge.
 def _predict(x, coeffs, method):
@@ -151,6 +155,8 @@ def _roptram_coefficients(coeffs_df, method):
     )
 
 
+### Trapezoid workflow
+
 # Derive wet/dry trapezoid coefficients from a VI-STR dataframe.
 def optram_wetdry_coefficients(
     full_df,
@@ -207,15 +213,15 @@ def optram_wetdry_coefficients(
         if export_roptram:
             roptram_coeffs = _roptram_coefficients(coeffs_df, method)
             suffix = "lin" if method == "linear" else "pol"
-            roptram_coeffs.to_csv(
-                output_dir / f"coefficients_{suffix}.csv", index=False
-            )
+            roptram_coeffs.to_csv(output_dir / f"coefficients_{suffix}.csv", index=False)
 
     if return_outputs:
         return rmse_df, coeffs_df, edges_df
 
     return rmse_df
 
+
+### Plotting
 
 # Plot VI-STR points with fitted wet and dry trapezoid edges.
 def plot_vi_str_cloud(
@@ -250,12 +256,8 @@ def plot_vi_str_cloud(
         points = ax.scatter(plot_df[vi_col], plot_df[str_col], c=plot_df["Month"], s=0.3)
         plt.colorbar(points, ax=ax, label="Month")
     elif plot_colors in ("feature", "features") and "Feature_ID" in plot_df.columns:
-        points = ax.scatter(
-            plot_df[vi_col],
-            plot_df[str_col],
-            c=plot_df["Feature_ID"],
-            s=0.3,
-        )
+        points = ax.scatter(plot_df[vi_col], plot_df[str_col],
+                            c=plot_df["Feature_ID"], s=0.3)
         plt.colorbar(points, ax=ax, label="Feature_ID")
     else:
         ax.scatter(plot_df[vi_col], plot_df[str_col], color="green", alpha=0.1, s=0.3)

@@ -26,6 +26,8 @@ _BASE_COLUMNS = [
 DEFAULT_SCL_KEEP = frozenset({4, 5, 6, 7})
 
 
+### Scene path matching
+
 def _as_path_list(paths, name):
     # Accept one path or a list of paths.
     if isinstance(paths, (str, Path)):
@@ -110,6 +112,8 @@ def _pair_scene_paths(ndvi_paths, str_paths, scl_paths=None):
         pairs.append((ndvi_by_scene[key], str_path, scl_path))
     return pairs
 
+
+### Raster and metadata helpers
 
 def _read_band(path):
     # Read raster band 1 and convert NoData to NaN.
@@ -203,6 +207,8 @@ def _scene_metadata_for(ndvi_path, str_path, scene_lookup):
     return _file_metadata(ndvi_path)
 
 
+### Feature filtering
+
 def _load_features(features):
     # Normalize a GeoJSON dict, Feature, FeatureCollection, or vector file
     # path into a plain list of GeoJSON Feature dicts.
@@ -284,6 +290,8 @@ def _rasterize_features(features, feature_id_col, transform, shape):
         dtype="int32",
     )
 
+
+### VI-STR table assembly
 
 def _remove_high_str(dataframe):
     # Remove high STR outliers with Q3 + 1.5 * IQR.

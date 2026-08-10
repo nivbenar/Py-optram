@@ -6,6 +6,8 @@ import pyoptram.acquire as acquire
 from pyoptram.acquire import load_evalscript
 
 
+### Credential handling
+
 @pytest.fixture
 def credential_file(monkeypatch, tmp_path):
     path = tmp_path / "CDSE" / "cdse_credentials.json"
@@ -273,6 +275,8 @@ def test_token_error_does_not_expose_secret(monkeypatch):
     assert "super-secret" not in str(exc_info.value)
 
 
+### Evalscripts
+
 def test_load_evalscript_includes_scl():
     script = load_evalscript("SCL")
     assert 'bands: ["SCL"]' in script
@@ -321,6 +325,8 @@ def test_load_evalscript_rejects_indices_without_roptram_cdse_scripts(veg_index)
     with pytest.raises(ValueError, match="Unknown script_name"):
         load_evalscript(veg_index)
 
+
+### Acquisition workflow
 
 @pytest.mark.parametrize("veg_index", ["NDVI", "SAVI", "MSAVI"])
 def test_acquisition_propagates_vegetation_index(monkeypatch, tmp_path, veg_index):

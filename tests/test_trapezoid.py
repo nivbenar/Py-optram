@@ -5,6 +5,8 @@ from pyoptram import optram_wetdry_coefficients
 from pyoptram.soil_moisture import _parse_coefficients
 
 
+### Fitting fixture
+
 def _fitting_dataframe():
     rng = np.random.default_rng(42)
     ndvi = np.repeat(np.linspace(0.05, 0.85, 17), 80)
@@ -14,6 +16,8 @@ def _fitting_dataframe():
     str_values = dry_line + position * (wet_line - dry_line)
     return pd.DataFrame({"NDVI": ndvi, "STR": str_values})
 
+
+### Trapezoid fitting
 
 def test_optram_wetdry_coefficients_returns_rmse_coefficients_and_edges():
     # Wet/dry fitting returns RMSE, coefficients, and fitted edge points.
@@ -29,12 +33,12 @@ def test_optram_wetdry_coefficients_returns_rmse_coefficients_and_edges():
 
     assert list(rmse_df.columns) == ["RMSE wet", "RMSE dry"]
     assert set(coeffs_df["edge"]) == {"wet", "dry"}
-    assert {"STR_wet", "STR_dry", "STR_wet_fit", "STR_dry_fit"}.issubset(
-        edges_df.columns
-    )
+    assert {"STR_wet", "STR_dry", "STR_wet_fit", "STR_dry_fit"}.issubset(edges_df.columns)
     assert rmse_df.loc[0, "RMSE wet"] >= 0
     assert rmse_df.loc[0, "RMSE dry"] >= 0
 
+
+### rOPTRAM-compatible exports
 
 def test_exports_and_round_trips_roptram_linear_coefficients_exactly(tmp_path):
     _, coeffs_df, _ = optram_wetdry_coefficients(

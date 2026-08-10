@@ -5,6 +5,8 @@ import pandas as pd
 import rasterio
 
 
+### Input and coefficient helpers
+
 def _as_path_list(paths, name):
     if isinstance(paths, (str, Path)):
         return [Path(paths)]
@@ -27,10 +29,7 @@ def _predict_edge(vi, coeffs, method):
 
 def _coeffs_from_row(row, method):
     if method == "linear":
-        return {
-            "slope": float(row["slope"]),
-            "intercept": float(row["intercept"]),
-        }
+        return {"slope": float(row["slope"]), "intercept": float(row["intercept"])}
     if method == "polynomial":
         return {
             "alpha": float(row["alpha"]),
@@ -38,10 +37,7 @@ def _coeffs_from_row(row, method):
             "beta_2": float(row["beta_2"]),
         }
     if method == "exponential":
-        return {
-            "a": float(row["a"]),
-            "b": float(row["b"]),
-        }
+        return {"a": float(row["a"]), "b": float(row["b"])}
     raise ValueError("method must be 'linear', 'polynomial', or 'exponential'")
 
 
@@ -80,19 +76,10 @@ def _parse_coefficients(coefficients, method=None):
 
     table = _read_coeffs_table(coefficients)
 
-    linear_columns = [
-        "intercept_dry",
-        "slope_dry",
-        "intercept_wet",
-        "slope_wet",
-    ]
+    linear_columns = ["intercept_dry", "slope_dry", "intercept_wet", "slope_wet"]
     polynomial_columns = [
-        "alpha_dry",
-        "beta1_dry",
-        "beta2_dry",
-        "alpha_wet",
-        "beta1_wet",
-        "beta2_wet",
+        "alpha_dry", "beta1_dry", "beta2_dry",
+        "alpha_wet", "beta1_wet", "beta2_wet",
     ]
 
     if list(table.columns) == linear_columns:
@@ -165,6 +152,8 @@ def _parse_coefficients(coefficients, method=None):
     return {"method": method, "wet": wet, "dry": dry}
 
 
+### Soil-moisture calculation
+
 def calculate_soil_moisture(vi, str_array, coefficients, method=None, porosity=0.4, clip=False):
     vi = np.asarray(vi, dtype=np.float32)
     str_array = np.asarray(str_array, dtype=np.float32)
@@ -181,12 +170,8 @@ def calculate_soil_moisture(vi, str_array, coefficients, method=None, porosity=0
     str_wet = _predict_edge(vi, parsed["wet"], method)
     str_dry = _predict_edge(vi, parsed["dry"], method)
 
-    valid = (
-        np.isfinite(vi)
-        & np.isfinite(str_array)
-        & np.isfinite(str_wet)
-        & np.isfinite(str_dry)
-    )
+    valid = (np.isfinite(vi) & np.isfinite(str_array)
+             & np.isfinite(str_wet) & np.isfinite(str_dry))
 
     denominator = str_dry - str_wet
     valid &= np.isfinite(denominator) & (np.abs(denominator) > 1e-12)
@@ -200,15 +185,10 @@ def calculate_soil_moisture(vi, str_array, coefficients, method=None, porosity=0
     return sm
 
 
-def optram_calculate_soil_moisture(
-    vi_paths,
-    str_paths,
-    coefficients,
-    output_dir,
-    method=None,
-    porosity=0.4,
-    clip=False,
-):
+### Raster workflow
+
+def optram_calculate_soil_moisture(vi_paths, str_paths, coefficients, output_dir,
+                                   method=None, porosity=0.4, clip=False):
     vi_path_list = _as_path_list(vi_paths, "vi_paths")
     str_path_list = _as_path_list(str_paths, "str_paths")
 

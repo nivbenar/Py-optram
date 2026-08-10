@@ -3,6 +3,8 @@ import numpy as np
 from pyoptram import calculate_str
 
 
+### STR formula
+
 def test_calculate_str_formula_and_non_positive_values():
     # STR uses the OPTRAM formula and converts non-positive SWIR to NaN.
     swir = np.array([0.1, 0.2, 0.0, -0.1], dtype=np.float32)

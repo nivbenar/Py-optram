@@ -11,8 +11,7 @@ from .str_transform_calculations import calculate_str, optram_calculate_str
 from .trapezoid import optram_wetdry_coefficients, plot_vi_str_cloud
 from .vegetation_index import calculate_vi
 
-## pyOPTRAM Package
-## Public API from this package
+### Public package API
 
 __all__ = [
     "acquire_optram_inputs",

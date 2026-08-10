@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import pyoptram as op
 
 
-# Download paired NDVI and STR rasters.
+### Download paired NDVI and STR rasters
 results = op.acquire_optram_inputs(
     aoi=[-114.75, 32.55, -114.45, 32.75],
     from_date="2025-12-01",
@@ -27,7 +27,7 @@ print("NDVI files:", len(results["NDVI"]))
 print("STR files:", len(results["STR"]))
 
 
-# Build the VI-STR dataframe from the raster pairs.
+### Build the VI-STR dataframe from the raster pairs
 df = op.optram_ndvi_str(
     results["NDVI"],
     results["STR"],
@@ -38,7 +38,7 @@ print(df[["NDVI", "STR"]].describe())
 print("Zero STR rows:", (df["STR"] == 0).sum())
 
 
-# Fit the wet and dry trapezoid edges.
+### Fit the wet and dry trapezoid edges
 rmse_df, coeffs_df, edges_df = op.optram_wetdry_coefficients(
     df,
     output_dir="outputs_yuma",
@@ -52,7 +52,7 @@ print(rmse_df)
 print(coeffs_df)
 
 
-# Plot the VI-STR cloud and fitted wet/dry edges.
+### Plot the VI-STR cloud and fitted wet/dry edges
 op.plot_vi_str_cloud(
     df,
     edges_df,

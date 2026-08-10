@@ -4,11 +4,15 @@ import numpy as np
 import rasterio
 
 
+### STR calculation
+
 # Calculate STR from SWIR reflectance values scaled to 0-1.
 def calculate_str(swir):
     with np.errstate(divide="ignore", invalid="ignore"):
         return np.where(swir > 0, ((1.0 - swir) ** 2) / (2.0 * swir), np.nan)
 
+
+### Raster preparation
 
 # Find BOA files and create the STR output folder.
 def prepare_str_inputs(boa_dir, str_dir=None):
