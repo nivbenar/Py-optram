@@ -3,6 +3,7 @@ from .ndvi_str import optram_ndvi_str
 from .soil_moisture import calculate_soil_moisture, optram_calculate_soil_moisture
 from .str_transform_calculations import calculate_str, optram_calculate_str
 from .trapezoid import optram_wetdry_coefficients, plot_vi_str_cloud
+from .vegetation_index import calculate_vi
 
 ## pyOPTRAM Package
 ## Public API from this package
@@ -17,4 +18,5 @@ __all__ = [
     "optram_calculate_str",
     "optram_wetdry_coefficients",
     "plot_vi_str_cloud",
+    "calculate_vi",
 ]

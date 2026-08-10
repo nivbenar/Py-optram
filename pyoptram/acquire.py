@@ -150,16 +150,30 @@ def prepare_output_folders(
     return folders
 
 
-# Return the Sentinel Hub evalscript for NDVI, STR, BOA, or SCL.
+# Return the Sentinel Hub evalscript for a supported VI, STR, BOA, or SCL.
 def load_evalscript(script_name, swir_band=11, scl_mask=False, scl_keep=None):
     """Return a Sentinel Hub evalscript used by the Process API."""
-    if script_name == "NDVI":
+    vi_formulas = {
+        "NDVI": "(sample.B08 - sample.B04) / (sample.B08 + sample.B04)",
+        "SAVI": (
+            "1.5 * (sample.B08 - sample.B04) / "
+            "(sample.B08 + sample.B04 + 0.5)"
+        ),
+        "MSAVI": (
+            "(2 * sample.B08 + 1 - "
+            "Math.sqrt(Math.pow(2 * sample.B08 + 1, 2) - "
+            "8 * (sample.B08 - sample.B04))) / 2"
+        ),
+    }
+
+    if script_name in vi_formulas:
+        variable_name = script_name.lower()
+        formula = vi_formulas[script_name]
         if scl_mask:
-            keep = [4, 5] if scl_keep is None else sorted(set(scl_keep))
+            keep = [2, 4, 5, 10] if scl_keep is None else sorted(set(scl_keep))
             keep_js = ", ".join(str(int(value)) for value in keep)
             return f"""
 //VERSION=3
-// Calculate NDVI and keep selected Sentinel-2 SCL classes.
 function setup() {{
     return {{
         input: [{{ bands: ["B04", "B08", "SCL"] }}],
@@ -167,27 +181,26 @@ function setup() {{
     }};
 }}
 function evaluatePixel(sample) {{
-    let ndvi = (sample.B08 - sample.B04) / (sample.B08 + sample.B04);
+    let {variable_name} = {formula};
     if ([{keep_js}].includes(sample.SCL)) {{
-        return [ndvi];
+        return [{variable_name}];
     }}
     return [NaN];
 }}
 """.strip()
 
-        return """
+        return f"""
 //VERSION=3
-// Calculate NDVI from Sentinel-2 red and near-infrared bands.
-function setup() {
-    return {
-        input: [{ bands: ["B04", "B08"] }],
-        output: { bands: 1, sampleType: "FLOAT32" }
-    };
-}
-function evaluatePixel(sample) {
-    let ndvi = (sample.B08 - sample.B04) / (sample.B08 + sample.B04);
-    return [ndvi];
-}
+function setup() {{
+    return {{
+        input: [{{ bands: ["B04", "B08"] }}],
+        output: {{ bands: 1, sampleType: "FLOAT32" }}
+    }};
+}}
+function evaluatePixel(sample) {{
+    let {variable_name} = {formula};
+    return [{variable_name}];
+}}
 """.strip()
 
     if script_name == "STR":
@@ -370,18 +383,21 @@ def download_index(
 
 
 # Build a small metadata record for a downloaded scene.
-def _scene_record(scene, ndvi_path, str_path, boa_path=None, scl_path=None):
+def _scene_record(
+    scene, veg_index, vi_path, str_path, boa_path=None, scl_path=None
+):
     properties = scene.get("properties", {})
-    return {
+    record = {
         "id": scene.get("id"),
         "datetime": properties.get("datetime"),
         "cloud_cover": properties.get("eo:cloud_cover"),
         "tile": _scene_tile(scene),
-        "NDVI": ndvi_path,
         "STR": str_path,
         "BOA": boa_path,
         "SCL": scl_path,
     }
+    record[veg_index] = vi_path
+    return record
 
 
 def acquire_optram_inputs(
@@ -404,12 +420,12 @@ def acquire_optram_inputs(
     download_scl=False,
     scl_keep=None,
 ):
-    # Download paired NDVI and STR rasters for OPTRAM inputs.
+    # Download paired vegetation-index and STR rasters for OPTRAM inputs.
     if swir_band not in (11, 12):
         raise ValueError("swir_band must be 11 or 12")
 
-    if veg_index != "NDVI":
-        raise NotImplementedError("Only NDVI is implemented at the moment")
+    if veg_index not in ("NDVI", "SAVI", "MSAVI"):
+        raise ValueError("CDSE acquisition supports NDVI, SAVI, or MSAVI")
 
     if width > DEFAULT_MAX_SIZE or height > DEFAULT_MAX_SIZE:
         raise ValueError("width and height cannot exceed 2500 pixels")
@@ -444,23 +460,23 @@ def acquire_optram_inputs(
     )
 
     if not scenes:
-        return {"NDVI": [], "STR": [], "BOA": [], "SCL": [], "scenes": []}
+        return {veg_index: [], "STR": [], "BOA": [], "SCL": [], "scenes": []}
 
-    results = {"NDVI": [], "STR": [], "BOA": [], "SCL": [], "scenes": []}
+    results = {veg_index: [], "STR": [], "BOA": [], "SCL": [], "scenes": []}
 
     for scene in scenes:
         scene_id = scene["id"]
         scene_datetime = scene["properties"]["datetime"]
         safe_time = scene_datetime.replace(":", "-").replace("/", "-")
 
-        ndvi_path = folders["vi"] / f"{veg_index}_{safe_time}_{scene_id}.tif"
+        vi_path = folders["vi"] / f"{veg_index}_{safe_time}_{scene_id}.tif"
         str_path = folders["str"] / f"STR_{safe_time}_{scene_id}.tif"
 
-        ndvi_file = download_index(
+        vi_file = download_index(
             aoi_geometry=aoi_geometry,
             scene_datetime=scene_datetime,
-            script_name="NDVI",
-            output_path=ndvi_path,
+            script_name=veg_index,
+            output_path=vi_path,
             token=token,
             swir_band=swir_band,
             width=width,
@@ -513,7 +529,7 @@ def acquire_optram_inputs(
                 overwrite=overwrite,
             )
 
-        results["NDVI"].append(ndvi_file)
+        results[veg_index].append(vi_file)
         results["STR"].append(str_file)
         if boa_file is not None:
             results["BOA"].append(boa_file)
@@ -521,7 +537,9 @@ def acquire_optram_inputs(
             results["SCL"].append(scl_file)
 
         results["scenes"].append(
-            _scene_record(scene, ndvi_file, str_file, boa_file, scl_file)
+            _scene_record(
+                scene, veg_index, vi_file, str_file, boa_file, scl_file
+            )
         )
 
     if scl_keep is not None:

@@ -3,7 +3,7 @@
 `pyoptram` is a Python implementation of core OPTRAM workflow steps inspired by [rOPTRAM](https://github.com/ropensci/rOPTRAM).
 
 It currently focuses on:
-- acquiring Sentinel-2 NDVI and STR inputs from Copernicus Data Space,
+- acquiring Sentinel-2 NDVI, SAVI, or MSAVI and STR inputs from Copernicus Data Space,
 - preparing paired NDVI-STR pixel tables,
 - fitting OPTRAM wet/dry edge coefficients,
 - calculating soil moisture rasters from fitted coefficients,
@@ -102,6 +102,7 @@ df = optram_ndvi_str(
 
 - `get_cdse_token`
 - `acquire_optram_inputs`
+- `calculate_vi`
 - `calculate_str`
 - `optram_calculate_str`
 - `optram_ndvi_str`
@@ -109,6 +110,20 @@ df = optram_ndvi_str(
 - `calculate_soil_moisture`
 - `optram_calculate_soil_moisture`
 - `plot_vi_str_cloud`
+
+## Vegetation indices
+
+The public `calculate_vi` function implements the five indices available in
+rOPTRAM: NDVI, SAVI, MSAVI, CI, and BSCI. It uses rOPTRAM's one-based default
+band numbers and its reflectance scaling formula. CDSE acquisition supports
+NDVI, SAVI, and MSAVI, matching the evalscripts supplied by rOPTRAM; CI and
+BSCI are local calculations only. Masked CDSE products keep rOPTRAM's SCL
+classes 2, 4, 5, and 10.
+
+Two apparent rOPTRAM implementation errors are intentionally not reproduced.
+Scaling is applied once instead of twice, and `calculate_vi` requires only the
+bands used by the selected index instead of requiring every input stack to
+contain at least 12 bands.
 
 ## Current status
 
