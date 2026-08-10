@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+import csv
 import json
 import os
 import platform
@@ -54,6 +55,26 @@ def store_cdse_credentials(client_id=None, client_secret=None):
     credentials_file.parent.mkdir(parents=True, exist_ok=True)
     credentials = [{"clientid": client_id, "secret": client_secret}]
     credentials_file.write_text(json.dumps(credentials), encoding="utf-8")
+    return None
+
+
+def store_cdse_credentials_from_file(path):
+    """Store CDSE OAuth credentials from a clientid,secret CSV file."""
+    with Path(path).open(newline="", encoding="utf-8-sig") as credentials_file:
+        reader = csv.DictReader(credentials_file)
+        if reader.fieldnames is None or not {"clientid", "secret"}.issubset(reader.fieldnames):
+            raise ValueError("Credentials file must contain clientid and secret headers")
+        records = [row for row in reader if any(value and value.strip() for value in row.values())]
+
+    if len(records) != 1:
+        raise ValueError("Credentials file must contain exactly one credential record")
+
+    client_id = records[0].get("clientid", "").strip()
+    client_secret = records[0].get("secret", "").strip()
+    if not client_id or not client_secret:
+        raise ValueError("Credentials file must contain non-empty clientid and secret values")
+
+    store_cdse_credentials(client_id, client_secret)
     return None
 
 

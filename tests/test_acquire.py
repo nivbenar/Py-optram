@@ -64,6 +64,71 @@ def test_store_credentials_from_roptram_environment_names(
     }
 
 
+def test_store_credentials_from_csv_file(credential_file, tmp_path):
+    source = tmp_path / "credentials.csv"
+    source.write_text("clientid,secret\nfile-id,file-secret\n", encoding="utf-8")
+
+    assert acquire.store_cdse_credentials_from_file(source) is None
+    assert acquire.retrieve_cdse_credentials() == {"clientid": "file-id", "secret": "file-secret"}
+
+
+def test_acquisition_reuses_file_credentials_after_source_is_removed(
+    monkeypatch, tmp_path, credential_file
+):
+    source = tmp_path / "credentials.csv"
+    source.write_text("clientid,secret\nfile-id,file-secret\n", encoding="utf-8")
+    acquire.store_cdse_credentials_from_file(source)
+    source.unlink()
+    token_calls = []
+    monkeypatch.setattr(acquire, "get_cdse_token", lambda *args: token_calls.append(args) or "token")
+    monkeypatch.setattr(acquire, "search_catalog", lambda **kwargs: [])
+
+    acquire.acquire_optram_inputs(
+        aoi=(34.0, 31.0, 34.1, 31.1),
+        from_date="2024-01-01",
+        to_date="2024-01-03",
+        output_dir=tmp_path,
+    )
+
+    assert token_calls == [("file-id", "file-secret")]
+
+
+@pytest.mark.parametrize(
+    "contents, message",
+    [
+        ("username,password\nuser,password\n", "clientid and secret headers"),
+        ("clientid,secret\n\n", "exactly one credential record"),
+        ("clientid,secret\nid-one,secret-one\nid-two,secret-two\n", "exactly one credential record"),
+        ("clientid,secret\nid-only,\n", "non-empty clientid and secret values"),
+    ],
+)
+def test_store_credentials_from_csv_rejects_invalid_input(
+    tmp_path, credential_file, contents, message
+):
+    source = tmp_path / "credentials.csv"
+    source.write_text(contents, encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message) as exc_info:
+        acquire.store_cdse_credentials_from_file(source)
+
+    assert "secret-one" not in str(exc_info.value)
+    assert "secret-two" not in str(exc_info.value)
+    assert not credential_file.exists()
+
+
+def test_store_credentials_from_csv_does_not_print_secret(
+    capsys, credential_file, tmp_path
+):
+    source = tmp_path / "credentials.csv"
+    source.write_text("clientid,secret\nfile-id,hidden-secret\n", encoding="utf-8")
+
+    acquire.store_cdse_credentials_from_file(source)
+
+    captured = capsys.readouterr()
+    assert "hidden-secret" not in captured.out
+    assert "hidden-secret" not in captured.err
+
+
 def test_retrieve_missing_credentials_warns_without_exposing_secret(
     credential_file,
 ):

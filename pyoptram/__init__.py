@@ -3,6 +3,7 @@ from .acquire import (
     get_cdse_token,
     retrieve_cdse_credentials,
     store_cdse_credentials,
+    store_cdse_credentials_from_file,
 )
 from .ndvi_str import optram_ndvi_str
 from .soil_moisture import calculate_soil_moisture, optram_calculate_soil_moisture
@@ -18,6 +19,7 @@ __all__ = [
     "get_cdse_token",
     "retrieve_cdse_credentials",
     "store_cdse_credentials",
+    "store_cdse_credentials_from_file",
     "optram_ndvi_str",
     "calculate_soil_moisture",
     "optram_calculate_soil_moisture",

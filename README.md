@@ -30,6 +30,7 @@ from pyoptram import (
     optram_ndvi_str,
     optram_wetdry_coefficients,
     store_cdse_credentials,
+    store_cdse_credentials_from_file,
 )
 
 # One-time setup. OAUTH_CLIENTID and OAUTH_SECRET may be used instead.
@@ -37,6 +38,9 @@ store_cdse_credentials(
     client_id="YOUR_CDSE_CLIENT_ID",
     client_secret="YOUR_CDSE_CLIENT_SECRET",
 )
+
+# Or initialize from a CSV with clientid,secret headers:
+# store_cdse_credentials_from_file("path/to/cdse_credentials.csv")
 
 acquired = acquire_optram_inputs(
     aoi="path/to/aoi.geojson",  # GeoJSON, vector file, dict, or bbox tuple
