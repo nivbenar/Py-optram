@@ -1,0 +1,530 @@
+from datetime import datetime
+from pathlib import Path
+import json
+
+import requests
+
+
+TOKEN_URL = (
+    "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/"
+    "protocol/openid-connect/token"
+)
+CATALOG_URL = "https://sh.dataspace.copernicus.eu/api/v1/catalog/1.0.0/search"
+PROCESS_URL = "https://sh.dataspace.copernicus.eu/api/v1/process"
+DEFAULT_MAX_SIZE = 2500
+
+
+# Raise HTTP errors with the server response body included.
+def _raise_for_status(response, context):
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        message = (
+            f"{context} failed with HTTP {response.status_code}: "
+            f"{response.text}"
+        )
+        raise requests.HTTPError(message, response=response) from exc
+
+
+# Get a CDSE access token from manual client credentials.
+def get_cdse_token(client_id, client_secret):
+    response = requests.post(
+        TOKEN_URL,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+        timeout=30,
+    )
+    _raise_for_status(response, "CDSE token request")
+    return response.json()["access_token"]
+
+
+# Make sure a date string is formatted as YYYY-MM-DD.
+def validate_date(date_text, name):
+    try:
+        datetime.strptime(date_text, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError(f"{name} must be formatted as YYYY-MM-DD") from exc
+
+    return date_text
+
+
+# Read the first geometry from a vector file using geopandas.
+def _geometry_from_vector_file(path):
+    try:
+        import geopandas as gpd
+    except ImportError as exc:
+        raise ImportError(
+            "Reading this AOI file type requires geopandas. Install geopandas "
+            "or pass a GeoJSON file, GeoJSON dictionary, or bbox tuple."
+        ) from exc
+
+    data = gpd.read_file(path)
+
+    if data.empty:
+        raise ValueError(f"AOI file has no features: {path}")
+
+    if data.crs is not None and data.crs.to_epsg() != 4326:
+        data = data.to_crs(4326)
+
+    geometry = data.geometry.unary_union
+    return json.loads(gpd.GeoSeries([geometry], crs="EPSG:4326").to_json())[
+        "features"
+    ][0]["geometry"]
+
+
+# Convert a GeoJSON, vector file, or bbox AOI into GeoJSON geometry.
+def load_aoi(aoi):
+    if isinstance(aoi, dict):
+        if "type" not in aoi:
+            raise ValueError("AOI dictionary must contain a GeoJSON 'type'.")
+        if aoi["type"] == "Feature":
+            return aoi["geometry"]
+        if aoi["type"] == "FeatureCollection":
+            return aoi["features"][0]["geometry"]
+        return aoi
+
+    if isinstance(aoi, (str, Path)):
+        path = Path(aoi)
+        if not path.exists():
+            raise FileNotFoundError(f"AOI file not found: {path}")
+
+        if path.suffix.lower() in (".geojson", ".json"):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if data["type"] == "FeatureCollection":
+                return data["features"][0]["geometry"]
+            if data["type"] == "Feature":
+                return data["geometry"]
+            return data
+
+        return _geometry_from_vector_file(path)
+
+    if isinstance(aoi, (list, tuple)) and len(aoi) == 4:
+        minx, miny, maxx, maxy = aoi
+        return {
+            "type": "Polygon",
+            "coordinates": [[
+                [minx, miny],
+                [maxx, miny],
+                [maxx, maxy],
+                [minx, maxy],
+                [minx, miny],
+            ]],
+        }
+
+    raise ValueError(
+        "AOI must be a GeoJSON dict, a vector file path, or a bbox tuple "
+        "(minx, miny, maxx, maxy)."
+    )
+
+
+# Create output folders for VI, STR, and optionally BOA/SCL rasters.
+def prepare_output_folders(
+    output_dir,
+    veg_index="NDVI",
+    only_vi_str=False,
+    download_scl=False,
+):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    folders = {
+        "vi": output_dir / veg_index,
+        "str": output_dir / "STR",
+    }
+
+    if not only_vi_str:
+        folders["boa"] = output_dir / "BOA"
+
+    if download_scl:
+        folders["scl"] = output_dir / "SCL"
+
+    for folder in folders.values():
+        folder.mkdir(parents=True, exist_ok=True)
+
+    return folders
+
+
+# Return the Sentinel Hub evalscript for NDVI, STR, BOA, or SCL.
+def load_evalscript(script_name, swir_band=11, scl_mask=False, scl_keep=None):
+    """Return a Sentinel Hub evalscript used by the Process API."""
+    if script_name == "NDVI":
+        if scl_mask:
+            keep = [4, 5] if scl_keep is None else sorted(set(scl_keep))
+            keep_js = ", ".join(str(int(value)) for value in keep)
+            return f"""
+//VERSION=3
+// Calculate NDVI and keep selected Sentinel-2 SCL classes.
+function setup() {{
+    return {{
+        input: [{{ bands: ["B04", "B08", "SCL"] }}],
+        output: {{ bands: 1, sampleType: "FLOAT32" }}
+    }};
+}}
+function evaluatePixel(sample) {{
+    let ndvi = (sample.B08 - sample.B04) / (sample.B08 + sample.B04);
+    if ([{keep_js}].includes(sample.SCL)) {{
+        return [ndvi];
+    }}
+    return [NaN];
+}}
+""".strip()
+
+        return """
+//VERSION=3
+// Calculate NDVI from Sentinel-2 red and near-infrared bands.
+function setup() {
+    return {
+        input: [{ bands: ["B04", "B08"] }],
+        output: { bands: 1, sampleType: "FLOAT32" }
+    };
+}
+function evaluatePixel(sample) {
+    let ndvi = (sample.B08 - sample.B04) / (sample.B08 + sample.B04);
+    return [ndvi];
+}
+""".strip()
+
+    if script_name == "STR":
+        band = f"B{swir_band}"
+        return f"""
+//VERSION=3
+// Calculate SWIR Transformed Reflectance from Sentinel-2 B11 or B12.
+function setup() {{
+    return {{
+        input: [{{ bands: ["{band}"], units: "DN" }}],
+        output: {{ bands: 1, sampleType: "FLOAT32" }}
+    }};
+}}
+function evaluatePixel(sample) {{
+    let value = sample.{band};
+    if (value !== 0) {{
+        let v = value / 10000.0;
+        let str_value = ((1 - v) ** 2) / (2 * v);
+        return [str_value];
+    }}
+    return [0];
+}}
+""".strip()
+
+    if script_name == "BOA":
+        return """
+//VERSION=3
+// Download Sentinel-2 bottom-of-atmosphere bands as one multiband raster.
+function setup() {
+    return {
+        input: [{
+            bands: ["B01","B02","B03","B04","B05","B06",
+                    "B07","B08","B8A","B09","B11","B12"],
+            units: "DN"
+        }],
+        output: { bands: 12, sampleType: "UINT16" }
+    };
+}
+function evaluatePixel(sample) {
+    return [
+        sample.B01, sample.B02, sample.B03, sample.B04,
+        sample.B05, sample.B06, sample.B07, sample.B08,
+        sample.B8A, sample.B09, sample.B11, sample.B12
+    ];
+}
+""".strip()
+
+    if script_name == "SCL":
+        return """
+//VERSION=3
+// Download the Sentinel-2 Scene Classification Layer.
+function setup() {
+    return {
+        input: [{ bands: ["SCL"] }],
+        output: { bands: 1, sampleType: "UINT8" }
+    };
+}
+function evaluatePixel(sample) {
+    return [sample.SCL];
+}
+""".strip()
+
+    raise ValueError(f"Unknown script_name: {script_name}")
+
+
+# Extract the Sentinel-2 MGRS tile from a catalog scene.
+def _scene_tile(scene):
+    properties = scene.get("properties", {})
+
+    for key in ("s2:mgrs_tile", "grid:code"):
+        value = properties.get(key)
+        if value:
+            return str(value).replace("MGRS-", "").upper()
+
+    scene_id = scene.get("id", "")
+    parts = scene_id.split("_")
+    for part in parts:
+        if part.startswith("T") and len(part) == 6:
+            return part[1:].upper()
+
+    return None
+
+
+# Keep only scenes from the requested MGRS tile.
+def _filter_scenes_by_tile(scenes, tile):
+    if tile is None:
+        return scenes
+
+    wanted = str(tile).upper().removeprefix("T")
+    return [scene for scene in scenes if _scene_tile(scene) == wanted]
+
+
+def search_catalog(
+    aoi_geometry,
+    from_date,
+    to_date,
+    token,
+    max_cloud=20,
+    limit=20,
+    tile=None,
+):
+    # Search Sentinel-2 L2A scenes by AOI, date range, cloud cover, and tile.
+    headers = {"Authorization": f"Bearer {token}"}
+    request_limit = max(limit, 100) if tile is not None else limit
+
+    payload = {
+        "intersects": aoi_geometry,
+        "datetime": f"{from_date}T00:00:00Z/{to_date}T23:59:59Z",
+        "collections": ["sentinel-2-l2a"],
+        "limit": request_limit,
+        "filter": f"eo:cloud_cover <= {max_cloud}",
+    }
+
+    response = requests.post(CATALOG_URL, headers=headers, json=payload, timeout=60)
+    _raise_for_status(response, "Sentinel-2 catalog search")
+    scenes = response.json().get("features", [])
+    return _filter_scenes_by_tile(scenes, tile)[:limit]
+
+
+def download_index(
+    aoi_geometry,
+    scene_datetime,
+    script_name,
+    output_path,
+    token,
+    swir_band=11,
+    width=DEFAULT_MAX_SIZE,
+    height=DEFAULT_MAX_SIZE,
+    overwrite=False,
+    scl_mask=False,
+    scl_keep=None,
+):
+    # Download one GeoTIFF product with the Sentinel Hub Process API.
+    output_path = Path(output_path)
+
+    if output_path.exists() and not overwrite:
+        return str(output_path)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "image/tiff",
+    }
+
+    payload = {
+        "input": {
+            "bounds": {"geometry": aoi_geometry},
+            "data": [
+                {
+                    "type": "sentinel-2-l2a",
+                    "dataFilter": {
+                        "timeRange": {
+                            "from": scene_datetime,
+                            "to": scene_datetime,
+                        }
+                    },
+                }
+            ],
+        },
+        "output": {
+            "width": width,
+            "height": height,
+            "responses": [{"identifier": "default", "format": {"type": "image/tiff"}}],
+        },
+        "evalscript": load_evalscript(
+            script_name,
+            swir_band=swir_band,
+            scl_mask=scl_mask,
+            scl_keep=scl_keep,
+        ),
+    }
+
+    response = requests.post(PROCESS_URL, headers=headers, json=payload, timeout=180)
+    _raise_for_status(response, f"{script_name} download")
+
+    output_path.write_bytes(response.content)
+    return str(output_path)
+
+
+# Build a small metadata record for a downloaded scene.
+def _scene_record(scene, ndvi_path, str_path, boa_path=None, scl_path=None):
+    properties = scene.get("properties", {})
+    return {
+        "id": scene.get("id"),
+        "datetime": properties.get("datetime"),
+        "cloud_cover": properties.get("eo:cloud_cover"),
+        "tile": _scene_tile(scene),
+        "NDVI": ndvi_path,
+        "STR": str_path,
+        "BOA": boa_path,
+        "SCL": scl_path,
+    }
+
+
+def acquire_optram_inputs(
+    aoi,
+    from_date,
+    to_date,
+    output_dir,
+    client_id,
+    client_secret,
+    veg_index="NDVI",
+    swir_band=11,
+    max_cloud=20,
+    only_vi_str=True,
+    tile=None,
+    limit=20,
+    width=DEFAULT_MAX_SIZE,
+    height=DEFAULT_MAX_SIZE,
+    overwrite=False,
+    scl_mask=True,
+    download_scl=False,
+    scl_keep=None,
+):
+    # Download paired NDVI and STR rasters for OPTRAM inputs.
+    if swir_band not in (11, 12):
+        raise ValueError("swir_band must be 11 or 12")
+
+    if veg_index != "NDVI":
+        raise NotImplementedError("Only NDVI is implemented at the moment")
+
+    if width > DEFAULT_MAX_SIZE or height > DEFAULT_MAX_SIZE:
+        raise ValueError("width and height cannot exceed 2500 pixels")
+
+    if width < 1 or height < 1:
+        raise ValueError("width and height must be positive integers")
+
+    from_date = validate_date(from_date, "from_date")
+    to_date = validate_date(to_date, "to_date")
+
+    if from_date > to_date:
+        raise ValueError("from_date must be earlier than or equal to to_date")
+
+    aoi_geometry = load_aoi(aoi)
+
+    token = get_cdse_token(client_id, client_secret)
+    folders = prepare_output_folders(
+        output_dir,
+        veg_index=veg_index,
+        only_vi_str=only_vi_str,
+        download_scl=download_scl,
+    )
+
+    scenes = search_catalog(
+        aoi_geometry=aoi_geometry,
+        from_date=from_date,
+        to_date=to_date,
+        token=token,
+        max_cloud=max_cloud,
+        limit=limit,
+        tile=tile,
+    )
+
+    if not scenes:
+        return {"NDVI": [], "STR": [], "BOA": [], "SCL": [], "scenes": []}
+
+    results = {"NDVI": [], "STR": [], "BOA": [], "SCL": [], "scenes": []}
+
+    for scene in scenes:
+        scene_id = scene["id"]
+        scene_datetime = scene["properties"]["datetime"]
+        safe_time = scene_datetime.replace(":", "-").replace("/", "-")
+
+        ndvi_path = folders["vi"] / f"{veg_index}_{safe_time}_{scene_id}.tif"
+        str_path = folders["str"] / f"STR_{safe_time}_{scene_id}.tif"
+
+        ndvi_file = download_index(
+            aoi_geometry=aoi_geometry,
+            scene_datetime=scene_datetime,
+            script_name="NDVI",
+            output_path=ndvi_path,
+            token=token,
+            swir_band=swir_band,
+            width=width,
+            height=height,
+            overwrite=overwrite,
+            scl_mask=scl_mask,
+            scl_keep=scl_keep,
+        )
+
+        str_file = download_index(
+            aoi_geometry=aoi_geometry,
+            scene_datetime=scene_datetime,
+            script_name="STR",
+            output_path=str_path,
+            token=token,
+            swir_band=swir_band,
+            width=width,
+            height=height,
+            overwrite=overwrite,
+        )
+
+        boa_file = None
+        scl_file = None
+
+        if not only_vi_str and "boa" in folders:
+            boa_path = folders["boa"] / f"BOA_{safe_time}_{scene_id}.tif"
+            boa_file = download_index(
+                aoi_geometry=aoi_geometry,
+                scene_datetime=scene_datetime,
+                script_name="BOA",
+                output_path=boa_path,
+                token=token,
+                swir_band=swir_band,
+                width=width,
+                height=height,
+                overwrite=overwrite,
+            )
+
+        if download_scl and "scl" in folders:
+            scl_path = folders["scl"] / f"SCL_{safe_time}_{scene_id}.tif"
+            scl_file = download_index(
+                aoi_geometry=aoi_geometry,
+                scene_datetime=scene_datetime,
+                script_name="SCL",
+                output_path=scl_path,
+                token=token,
+                swir_band=swir_band,
+                width=width,
+                height=height,
+                overwrite=overwrite,
+            )
+
+        results["NDVI"].append(ndvi_file)
+        results["STR"].append(str_file)
+        if boa_file is not None:
+            results["BOA"].append(boa_file)
+        if scl_file is not None:
+            results["SCL"].append(scl_file)
+
+        results["scenes"].append(
+            _scene_record(scene, ndvi_file, str_file, boa_file, scl_file)
+        )
+
+    if scl_keep is not None:
+        results["scl_keep"] = sorted(int(value) for value in set(scl_keep))
+
+    return results
