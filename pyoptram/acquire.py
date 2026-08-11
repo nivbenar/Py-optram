@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 import csv
 import json
+import math
 import os
 import platform
 import warnings
@@ -24,6 +25,66 @@ TOKEN_URL = (
 CATALOG_URL = "https://sh.dataspace.copernicus.eu/api/v1/catalog/1.0.0/search"
 PROCESS_URL = "https://sh.dataspace.copernicus.eu/api/v1/process"
 DEFAULT_MAX_SIZE = 2500
+
+
+### Calculate metre lengths of longitude and latitude degrees on WGS 84.
+def _degree_lengths(latitude):
+    """Return CDSE-compatible metre lengths of one degree at ``latitude``."""
+    a = 6378137.0
+    b = 6356752.3142
+    e2 = (a ** 2 - b ** 2) / a ** 2
+    phi = latitude * math.pi / 180.0
+    denominator = 1 - e2 * math.sin(phi) ** 2
+    degree_x = (
+        math.pi * a * math.cos(phi) / (180.0 * math.sqrt(denominator))
+    )
+    degree_y = (
+        math.pi * a * (1 - e2) / (180.0 * denominator ** (3 / 2))
+    )
+    return degree_x, degree_y
+
+
+### Build the Process API grid used by CDSE for metre-resolution requests.
+def _resolution_output(aoi_geometry, resolution):
+    """Convert metres to a CRS84 grid and enforce CDSE's 2500-pixel limit."""
+    geometry = shape(aoi_geometry)
+    centroid_degree_lengths = _degree_lengths(geometry.centroid.y)
+    resx = resolution / centroid_degree_lengths[0]
+    resy = resolution / centroid_degree_lengths[1]
+
+    minx, miny, maxx, maxy = geometry.bounds
+    midpoint_degree_lengths = _degree_lengths((miny + maxy) / 2)
+    check_resx = resolution / midpoint_degree_lengths[0]
+    check_resy = resolution / midpoint_degree_lengths[1]
+    columns = max(1, math.floor((maxx - minx) / check_resx + 0.5))
+    rows = max(1, math.floor((maxy - miny) / check_resy + 0.5))
+    if rows > DEFAULT_MAX_SIZE or columns > DEFAULT_MAX_SIZE:
+        raise ValueError(
+            f"The requested image dimension ({rows} x {columns}) exceeds "
+            "the allowed maximum (2500 pixels). Please revise the "
+            "resolution to make sure it is in supported range."
+        )
+    return {"resx": resx, "resy": resy}
+
+
+### Validate explicit Python-specific Process API dimensions.
+def _dimension_output(width, height):
+    if width is None:
+        width = DEFAULT_MAX_SIZE
+    if height is None:
+        height = DEFAULT_MAX_SIZE
+    if (
+        not isinstance(width, int)
+        or isinstance(width, bool)
+        or not isinstance(height, int)
+        or isinstance(height, bool)
+        or width < 1
+        or height < 1
+    ):
+        raise ValueError("width and height must be positive integers")
+    if width > DEFAULT_MAX_SIZE or height > DEFAULT_MAX_SIZE:
+        raise ValueError("width and height cannot exceed 2500 pixels")
+    return {"width": width, "height": height}
 
 
 ### Credential storage and retrieval
@@ -579,8 +640,9 @@ def download_index(
     output_path,
     token,
     swir_band=_UNSET,
-    width=DEFAULT_MAX_SIZE,
-    height=DEFAULT_MAX_SIZE,
+    resolution=_UNSET,
+    width=None,
+    height=None,
     overwrite=_UNSET,
     scl_mask=False,
     scl_keep=None,
@@ -601,8 +663,12 @@ def download_index(
         CDSE access token.
     swir_band : {11, 12}, optional
         STR band; defaults to the current option, initially 11.
-    width, height : int, default 2500
-        Process API output dimensions.
+    resolution : {10, 20, 60}, optional
+        Output resolution in metres. The default follows rOPTRAM/CDSE and is
+        converted to a CRS84 angular grid at the AOI centroid latitude.
+    width, height : int, optional
+        Python-specific Process API dimension overrides. Supplying either
+        selects dimension mode; an omitted dimension defaults to 2500.
     overwrite : bool, optional
         Defaults to the current rOPTRAM-compatible option, initially false.
     scl_mask : bool, default False
@@ -625,6 +691,9 @@ def download_index(
     """
     if swir_band is _UNSET:
         swir_band = get_optram_option("SWIR_band")
+    resolution = _resolve_optram_option(
+        "resolution", resolution, "resolution must be 10, 20, or 60"
+    )
     if overwrite is _UNSET:
         overwrite = get_optram_option("overwrite")
     output_path = Path(output_path)
@@ -640,9 +709,19 @@ def download_index(
         "Accept": "image/tiff",
     }
 
+    if width is None and height is None:
+        spatial_output = _resolution_output(aoi_geometry, resolution)
+    else:
+        spatial_output = _dimension_output(width, height)
+
     payload = {
         "input": {
-            "bounds": {"geometry": aoi_geometry},
+            "bounds": {
+                "geometry": aoi_geometry,
+                "properties": {
+                    "crs": "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+                },
+            },
             "data": [
                 {
                     "type": "sentinel-2-l2a",
@@ -656,8 +735,7 @@ def download_index(
             ],
         },
         "output": {
-            "width": width,
-            "height": height,
+            **spatial_output,
             "responses": [{"identifier": "default", "format": {"type": "image/tiff"}}],
         },
         "evalscript": load_evalscript(
@@ -706,8 +784,9 @@ def acquire_optram_inputs(
     only_vi_str=_UNSET,
     tile=_UNSET,
     limit=20,
-    width=DEFAULT_MAX_SIZE,
-    height=DEFAULT_MAX_SIZE,
+    resolution=_UNSET,
+    width=None,
+    height=None,
     overwrite=_UNSET,
     scl_mask=_UNSET,
     download_scl=False,
@@ -744,8 +823,13 @@ def acquire_optram_inputs(
         Five-character MGRS tile; defaults to the ``tileid`` option.
     limit : int, default 20
         Maximum catalog scenes to process.
-    width, height : int, default 2500
-        Output dimensions, each limited to 2500 pixels.
+    resolution : {10, 20, 60}, optional
+        Output resolution in metres; defaults to the current ``resolution``
+        option, initially 10. As in rOPTRAM/CDSE, metres are converted to a
+        CRS84 angular grid using the AOI centroid latitude.
+    width, height : int, optional
+        Python-specific output-dimension overrides, each limited to 2500.
+        Supplying either selects dimension mode; an omitted value uses 2500.
     overwrite : bool, optional
         Redownload existing outputs; defaults to false.
     scl_mask : bool, optional
@@ -773,8 +857,8 @@ def acquire_optram_inputs(
     Notes
     -----
     This implements rOPTRAM's CDSE/Sentinel Hub path only. Its openEO,
-    seasonal, area-coverage, saved-catalog, and metre-resolution workflows are
-    not implemented here.
+    seasonal, area-coverage, and saved-catalog workflows are not implemented
+    here.
     """
     veg_index = _resolve_optram_option(
         "veg_index",
@@ -801,15 +885,12 @@ def acquire_optram_inputs(
     scl_mask = _resolve_optram_option(
         "scm_mask", scl_mask, "scl_mask must be a boolean"
     )
+    resolution = _resolve_optram_option(
+        "resolution", resolution, "resolution must be 10, 20, or 60"
+    )
 
     if veg_index not in ("NDVI", "SAVI", "MSAVI"):
         raise ValueError("CDSE acquisition supports NDVI, SAVI, or MSAVI")
-
-    if width > DEFAULT_MAX_SIZE or height > DEFAULT_MAX_SIZE:
-        raise ValueError("width and height cannot exceed 2500 pixels")
-
-    if width < 1 or height < 1:
-        raise ValueError("width and height must be positive integers")
 
     from_date = validate_date(from_date, "from_date")
     to_date = validate_date(to_date, "to_date")
@@ -818,6 +899,10 @@ def acquire_optram_inputs(
         raise ValueError("to_date must be later than from_date")
 
     aoi_geometry = load_aoi(aoi)
+    if width is None and height is None:
+        _resolution_output(aoi_geometry, resolution)
+    else:
+        _dimension_output(width, height)
 
     explicit_credentials = client_id is not None and client_secret is not None
     if not explicit_credentials:
@@ -870,6 +955,7 @@ def acquire_optram_inputs(
             output_path=vi_path,
             token=token,
             swir_band=swir_band,
+            resolution=resolution,
             width=width,
             height=height,
             overwrite=overwrite,
@@ -884,6 +970,7 @@ def acquire_optram_inputs(
             output_path=str_path,
             token=token,
             swir_band=swir_band,
+            resolution=resolution,
             width=width,
             height=height,
             overwrite=overwrite,
@@ -901,6 +988,7 @@ def acquire_optram_inputs(
                 output_path=boa_path,
                 token=token,
                 swir_band=swir_band,
+                resolution=resolution,
                 width=width,
                 height=height,
                 overwrite=overwrite,
@@ -915,6 +1003,7 @@ def acquire_optram_inputs(
                 output_path=scl_path,
                 token=token,
                 swir_band=swir_band,
+                resolution=resolution,
                 width=width,
                 height=height,
                 overwrite=overwrite,

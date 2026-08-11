@@ -49,6 +49,7 @@ acquired = acquire_optram_inputs(
     output_dir="data/optram",
     max_cloud=12,
     only_vi_str=False,
+    resolution=10,
     download_scl=True,
 )
 
@@ -80,7 +81,10 @@ clip values. Pass `clip=True` explicitly when bounded output is desired.
 
 For acquisition, multi-feature AOIs are geometrically unioned before catalog
 search and download, matching rOPTRAM. Date ranges must satisfy
-`to_date > from_date`.
+`to_date > from_date`. Acquisition resolution defaults to 10 metres and accepts
+10, 20, or 60 metres. Matching rOPTRAM and `CDSE::GetImage()`, metre resolution
+is converted to a CRS84 angular grid at the AOI latitude. Explicit `width` and
+`height` remain available as Python-specific Process API overrides.
 
 ## rOPTRAM-compatible package options
 

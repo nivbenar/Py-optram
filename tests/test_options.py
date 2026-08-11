@@ -34,6 +34,7 @@ def test_implemented_option_defaults_match_roptram_zzz():
         "tileid": None,
         "scm_mask": True,
         "overwrite": False,
+        "resolution": 10,
         "porosity": 0.4,
     }
 
@@ -64,12 +65,26 @@ def test_optram_options_sets_and_resets_a_valid_value():
         ("tileid", "T36RXV"),
         ("scm_mask", 1),
         ("overwrite", 1),
+        ("resolution", 30),
         ("porosity", 1.0),
     ],
 )
 def test_optram_options_rejects_invalid_values(name, value):
     with pytest.raises(ValueError, match="Incorrect value"):
         optram_options(name, value, show_opts=False)
+
+
+@pytest.mark.parametrize("resolution", [10, 20, 60])
+def test_optram_options_accepts_roptram_resolutions(resolution):
+    optram_options("resolution", resolution, show_opts=False)
+
+    assert optram_options(show_opts=False)["resolution"] == resolution
+
+
+@pytest.mark.parametrize("resolution", [0, 30, 100, "10", True, None])
+def test_optram_options_rejects_other_resolutions(resolution):
+    with pytest.raises(ValueError, match="Incorrect value"):
+        optram_options("resolution", resolution, show_opts=False)
 
 
 def test_configured_vegetation_index_is_used_when_argument_is_omitted():

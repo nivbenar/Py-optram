@@ -68,6 +68,7 @@ _OPTION_SCHEMA = {
     ),
     "scm_mask": (True, _boolean),
     "overwrite": (False, _boolean),
+    "resolution": (10, _one_of(10, 20, 60)),
     "porosity": (0.4, _porosity),
 }
 

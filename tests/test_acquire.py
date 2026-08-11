@@ -98,6 +98,8 @@ def test_acquisition_receives_complete_unioned_aoi(monkeypatch, tmp_path):
         client_id="id",
         client_secret="secret",
         save_creds=False,
+        width=100,
+        height=100,
     )
 
     geometry = shape(search_calls[0]["aoi_geometry"])
@@ -447,6 +449,136 @@ def test_load_evalscript_rejects_indices_without_roptram_cdse_scripts(veg_index)
 
 ### Acquisition workflow
 
+@pytest.mark.parametrize(
+    "latitude, expected",
+    [
+        (0, (111319.49079327358, 110574.2758200226)),
+        (45, (78846.83509425737, 111131.77741377674)),
+    ],
+)
+def test_degree_lengths_match_cdse(latitude, expected):
+    assert acquire._degree_lengths(latitude) == pytest.approx(expected)
+
+
+def test_resolution_output_matches_cdse_centroid_conversion():
+    geometry = acquire.load_aoi(
+        (12.292349, 47.810849, 12.569037, 47.967123)
+    )
+
+    output = acquire._resolution_output(geometry, 10)
+
+    assert output == pytest.approx(
+        {
+            "resx": 0.00013371609330541562,
+            "resy": 0.00008993763143935762,
+        }
+    )
+
+
+def test_resolution_output_rejects_more_than_2500_pixels():
+    with pytest.raises(ValueError, match="exceeds the allowed maximum"):
+        acquire._resolution_output(acquire.load_aoi((0, 0, 0.23, 0.1)), 10)
+
+
+def test_resolution_limit_accepts_terra_ratio_below_half(monkeypatch):
+    monkeypatch.setattr(acquire, "_degree_lengths", lambda latitude: (1, 1))
+
+    assert acquire._resolution_output(
+        acquire.load_aoi((0, 0, 2500.49, 1)), 1
+    ) == {"resx": 1.0, "resy": 1.0}
+
+
+def test_resolution_limit_rejects_terra_half_ratio(monkeypatch):
+    monkeypatch.setattr(acquire, "_degree_lengths", lambda latitude: (1, 1))
+
+    with pytest.raises(ValueError, match=r"\(1 x 2501\)"):
+        acquire._resolution_output(
+            acquire.load_aoi((0, 0, 2500.50, 1)), 1
+        )
+
+
+def test_resolution_limit_maps_x_to_columns(monkeypatch):
+    monkeypatch.setattr(acquire, "_degree_lengths", lambda latitude: (1, 1))
+
+    with pytest.raises(ValueError, match=r"\(1 x 2501\)"):
+        acquire._resolution_output(acquire.load_aoi((0, 0, 2501, 1)), 1)
+
+
+def test_resolution_limit_maps_y_to_rows(monkeypatch):
+    monkeypatch.setattr(acquire, "_degree_lengths", lambda latitude: (1, 1))
+
+    with pytest.raises(ValueError, match=r"\(2501 x 1\)"):
+        acquire._resolution_output(acquire.load_aoi((0, 0, 1, 2501)), 1)
+
+
+class _DownloadResponse:
+    status_code = 200
+    text = ""
+    content = b"tiff"
+
+    def raise_for_status(self):
+        return None
+
+
+def test_download_uses_crs84_resolution_without_dimensions(monkeypatch, tmp_path):
+    requests = []
+    monkeypatch.setattr(
+        acquire.requests,
+        "post",
+        lambda *args, **kwargs: requests.append(kwargs["json"])
+        or _DownloadResponse(),
+    )
+    geometry = acquire.load_aoi(
+        (12.292349, 47.810849, 12.569037, 47.967123)
+    )
+
+    acquire.download_index(
+        aoi_geometry=geometry,
+        scene_datetime="2024-01-02T10:20:30Z",
+        script_name="NDVI",
+        output_path=tmp_path / "ndvi.tif",
+        token="token",
+    )
+
+    payload = requests[0]
+    assert payload["input"]["bounds"]["properties"]["crs"] == (
+        "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+    )
+    assert payload["output"]["resx"] == pytest.approx(
+        0.00013371609330541562
+    )
+    assert payload["output"]["resy"] == pytest.approx(
+        0.00008993763143935762
+    )
+    assert "width" not in payload["output"]
+    assert "height" not in payload["output"]
+
+
+def test_download_keeps_explicit_dimension_override(monkeypatch, tmp_path):
+    requests = []
+    monkeypatch.setattr(
+        acquire.requests,
+        "post",
+        lambda *args, **kwargs: requests.append(kwargs["json"])
+        or _DownloadResponse(),
+    )
+
+    acquire.download_index(
+        aoi_geometry=acquire.load_aoi((34, 31, 34.1, 31.1)),
+        scene_datetime="2024-01-02T10:20:30Z",
+        script_name="STR",
+        output_path=tmp_path / "str.tif",
+        token="token",
+        width=800,
+        height=600,
+    )
+
+    output = requests[0]["output"]
+    assert output["width"] == 800
+    assert output["height"] == 600
+    assert "resx" not in output
+    assert "resy" not in output
+
 @pytest.fixture
 def acquisition_mocks(monkeypatch):
     scene = {
@@ -488,6 +620,33 @@ def test_acquisition_defaults_match_roptram(tmp_path, acquisition_mocks):
     assert search_calls[0]["max_cloud"] == 12
     assert [call["script_name"] for call in downloads] == ["NDVI", "STR", "BOA"]
     assert downloads[0]["scl_mask"] is True
+    assert all(call["resolution"] == 10 for call in downloads)
+    assert all(call["width"] is None and call["height"] is None for call in downloads)
+
+
+def test_acquisition_products_receive_identical_spatial_grid(
+    tmp_path, acquisition_mocks
+):
+    _, downloads = acquisition_mocks
+
+    acquire.acquire_optram_inputs(
+        aoi=(34.0, 31.0, 34.1, 31.1),
+        from_date="2024-01-01",
+        to_date="2024-01-03",
+        output_dir=tmp_path,
+        client_id="id",
+        client_secret="secret",
+        resolution=20,
+        download_scl=True,
+    )
+
+    assert [call["script_name"] for call in downloads] == [
+        "NDVI", "STR", "BOA", "SCL"
+    ]
+    assert {
+        (call["resolution"], call["width"], call["height"])
+        for call in downloads
+    } == {(20, None, None)}
 
 
 @pytest.mark.parametrize("max_cloud", [-1, 101, float("inf"), float("nan"), "12"])
