@@ -14,6 +14,7 @@ dependencies = [
     "pandas",
     "rasterio",
     "requests",
+    "shapely",
 ]
 
 [project.optional-dependencies]

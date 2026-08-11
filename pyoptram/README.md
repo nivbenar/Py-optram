@@ -78,6 +78,10 @@ sm_paths = optram_calculate_soil_moisture(
 Soil-moisture calculations default to rOPTRAM's `porosity=0.4` and do not
 clip values. Pass `clip=True` explicitly when bounded output is desired.
 
+For acquisition, multi-feature AOIs are geometrically unioned before catalog
+search and download, matching rOPTRAM. Date ranges must satisfy
+`to_date > from_date`.
+
 ## rOPTRAM-compatible package options
 
 Implemented workflow options use rOPTRAM names, defaults, and validation:

@@ -2,12 +2,127 @@
 # Verifies credential handling, evalscript generation, validation, and the
 # Sentinel-2 acquisition workflow without live service calls.
 
+import json
 from pathlib import Path
 
 import pytest
+from shapely.geometry import shape
 
 import pyoptram.acquire as acquire
 from pyoptram.acquire import load_evalscript
+
+
+### Build one polygon feature for AOI union tests.
+def _polygon_feature(coordinates):
+    return {
+        "type": "Feature",
+        "properties": {},
+        "geometry": {"type": "Polygon", "coordinates": [coordinates]},
+    }
+
+
+### Build a two-feature AOI with touching or overlapping polygons.
+def _two_feature_aoi(overlap=False):
+    second_min_x = 1.0 if overlap else 2.0
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            _polygon_feature(
+                [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0], [0.0, 0.0]]
+            ),
+            _polygon_feature(
+                [[second_min_x, 0.0], [3.0, 0.0], [3.0, 2.0],
+                 [second_min_x, 2.0], [second_min_x, 0.0]]
+            ),
+        ],
+    }
+
+
+### AOI and date validation
+
+def test_load_aoi_unions_feature_collection_dict():
+    geometry = shape(acquire.load_aoi(_two_feature_aoi()))
+
+    assert geometry.bounds == (0.0, 0.0, 3.0, 2.0)
+    assert geometry.area == 6.0
+
+
+def test_load_aoi_unions_feature_collection_file(tmp_path):
+    path = tmp_path / "aoi.geojson"
+    path.write_text(json.dumps(_two_feature_aoi()), encoding="utf-8")
+
+    geometry = shape(acquire.load_aoi(path))
+
+    assert geometry.bounds == (0.0, 0.0, 3.0, 2.0)
+    assert geometry.area == 6.0
+
+
+def test_load_aoi_dissolves_overlapping_features():
+    geometry = shape(acquire.load_aoi(_two_feature_aoi(overlap=True)))
+
+    assert geometry.geom_type == "Polygon"
+    assert geometry.area == 6.0
+
+
+def test_load_aoi_rejects_empty_feature_collection():
+    with pytest.raises(ValueError, match="at least one feature"):
+        acquire.load_aoi({"type": "FeatureCollection", "features": []})
+
+
+def test_load_aoi_preserves_existing_geojson_and_bbox_forms():
+    polygon = {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
+    }
+    feature = {"type": "Feature", "properties": {}, "geometry": polygon}
+
+    assert acquire.load_aoi(polygon) is polygon
+    assert acquire.load_aoi(feature) is polygon
+    assert acquire.load_aoi((0, 0, 1, 1)) == polygon
+
+
+def test_acquisition_receives_complete_unioned_aoi(monkeypatch, tmp_path):
+    search_calls = []
+    monkeypatch.setattr(acquire, "get_cdse_token", lambda *args: "token")
+    monkeypatch.setattr(
+        acquire,
+        "search_catalog",
+        lambda **kwargs: search_calls.append(kwargs) or [],
+    )
+
+    acquire.acquire_optram_inputs(
+        aoi=_two_feature_aoi(),
+        from_date="2024-01-01",
+        to_date="2024-01-03",
+        output_dir=tmp_path,
+        client_id="id",
+        client_secret="secret",
+        save_creds=False,
+    )
+
+    geometry = shape(search_calls[0]["aoi_geometry"])
+    assert geometry.bounds == (0.0, 0.0, 3.0, 2.0)
+    assert geometry.area == 6.0
+
+
+def test_acquisition_rejects_equal_dates(tmp_path):
+    with pytest.raises(ValueError, match="to_date must be later than from_date"):
+        acquire.acquire_optram_inputs(
+            aoi=(0, 0, 1, 1),
+            from_date="2024-01-01",
+            to_date="2024-01-01",
+            output_dir=tmp_path,
+        )
+
+
+def test_acquisition_rejects_reversed_dates(tmp_path):
+    with pytest.raises(ValueError, match="to_date must be later than from_date"):
+        acquire.acquire_optram_inputs(
+            aoi=(0, 0, 1, 1),
+            from_date="2024-01-02",
+            to_date="2024-01-01",
+            output_dir=tmp_path,
+        )
 
 
 ### Credential handling

@@ -11,6 +11,8 @@ import platform
 import warnings
 
 import requests
+from shapely.geometry import mapping, shape
+from shapely.ops import unary_union
 
 from .options import _UNSET, _resolve_optram_option, get_optram_option
 
@@ -194,15 +196,39 @@ def _geometry_from_vector_file(path):
     ][0]["geometry"]
 
 
+### Union every polygon in a GeoJSON FeatureCollection.
+def _union_feature_collection(data):
+    """Union all Polygon/MultiPolygon features into one GeoJSON geometry.
+
+    Returns one Polygon or MultiPolygon used for acquisition AOI parity with
+    rOPTRAM.
+    """
+    features = data.get("features")
+    if not features:
+        raise ValueError("AOI FeatureCollection must contain at least one feature")
+
+    geometries = []
+    for feature in features:
+        if feature.get("type") != "Feature" or not feature.get("geometry"):
+            raise ValueError("AOI FeatureCollection contains an invalid feature")
+        geometry = shape(feature["geometry"])
+        if geometry.geom_type not in {"Polygon", "MultiPolygon"}:
+            raise ValueError("AOI features must be Polygon or MultiPolygon geometries")
+        geometries.append(geometry)
+
+    return mapping(unary_union(geometries))
+
+
 ### Convert a GeoJSON object, vector file, or bbox to GeoJSON geometry.
 def load_aoi(aoi):
+    """Normalize an AOI, geometrically unioning GeoJSON FeatureCollections."""
     if isinstance(aoi, dict):
         if "type" not in aoi:
             raise ValueError("AOI dictionary must contain a GeoJSON 'type'.")
         if aoi["type"] == "Feature":
             return aoi["geometry"]
         if aoi["type"] == "FeatureCollection":
-            return aoi["features"][0]["geometry"]
+            return _union_feature_collection(aoi)
         return aoi
 
     if isinstance(aoi, (str, Path)):
@@ -215,7 +241,7 @@ def load_aoi(aoi):
                 data = json.load(f)
 
             if data["type"] == "FeatureCollection":
-                return data["features"][0]["geometry"]
+                return _union_feature_collection(data)
             if data["type"] == "Feature":
                 return data["geometry"]
             return data
@@ -586,8 +612,8 @@ def acquire_optram_inputs(
     from_date = validate_date(from_date, "from_date")
     to_date = validate_date(to_date, "to_date")
 
-    if from_date > to_date:
-        raise ValueError("from_date must be earlier than or equal to to_date")
+    if from_date >= to_date:
+        raise ValueError("to_date must be later than from_date")
 
     aoi_geometry = load_aoi(aoi)
 
