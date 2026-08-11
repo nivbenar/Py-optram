@@ -47,8 +47,8 @@ acquired = acquire_optram_inputs(
     from_date="2024-01-01",
     to_date="2024-03-31",
     output_dir="data/optram",
-    max_cloud=20,
-    only_vi_str=True,
+    max_cloud=12,
+    only_vi_str=False,
     download_scl=True,
 )
 
@@ -78,6 +78,20 @@ sm_paths = optram_calculate_soil_moisture(
 Soil-moisture calculations default to rOPTRAM's `porosity=0.4` and do not
 clip values. Pass `clip=True` explicitly when bounded output is desired.
 
+## rOPTRAM-compatible package options
+
+Implemented workflow options use rOPTRAM names, defaults, and validation:
+
+```python
+from pyoptram import optram_options
+
+optram_options("vi_step", 0.01, show_opts=False)
+optram_options("plot_colors", "density", show_opts=False)
+current_options = optram_options(show_opts=False)
+```
+
+Explicit function arguments override the corresponding session option.
+
 ## rOPTRAM-like `optram_ndvi_str` options
 
 The NDVI/STR table builder now supports quality masking, feature extraction, and size caps:
@@ -102,9 +116,10 @@ df = optram_ndvi_str(
     str_paths=acquired["STR"],
     scl_paths=acquired["SCL"],        # optional SCL cloud-quality mask input
     scl_keep={4, 5, 6, 7},            # keep SCL classes (defaults to {4,5,6,7})
-    features=features_geojson,        # optional polygon filtering
+    features=features_geojson,        # optional feature labels for plotting
     feature_id_col="ID",              # creates Feature_ID column
-    max_tbl_size=1_000_000,           # hard cap while assembling
+    plot_colors="features",           # enables feature-ID preparation
+    max_tbl_size=1_000_000,           # divided and sampled across scenes
     max_rows=250_000,                 # optional final downsample
     scene_metadata=acquired["scenes"] # robust datetime/tile metadata lookup
 )
@@ -119,31 +134,29 @@ returned table to a caller-selected CSV path.
 
 ### VI–STR compatibility notes
 
-The Python workflow intentionally retains its existing behavior where it
-differs from rOPTRAM:
+The remaining compatibility differences in this workflow are:
 
 - Python returns `X`, `Y`, and `NDVI` plus pixel/source provenance columns;
   rOPTRAM's implementation returns lowercase `x`, `y`, and generic `VI`.
 - Python requires identical VI/STR grids. rOPTRAM joins raster values by
   coordinates and can therefore create a partial intersection.
 - Python always filters non-finite values, VI outside `[-1, 1]`, and
-  non-positive STR. Its optional low-VI, high-STR, SCL, and feature filtering
-  behavior is unchanged.
-- Python's `max_tbl_size` is an optional row-order assembly cap and `max_rows`
-  is an optional final random sample. rOPTRAM distributes its table-size cap
-  across scenes and randomly samples each oversized scene.
+  non-positive STR. Its optional low-VI, high-STR, and SCL filtering behavior
+  is unchanged.
+- Like rOPTRAM, `max_tbl_size` defaults to one million rows, is divided across
+  scenes, and randomly samples each oversized scene. Python's `max_rows` is an
+  additional optional final sample.
 - Python writes a caller-named CSV only when `output_csv` is supplied;
   rOPTRAM always writes `VI_STR_data.rds` to its output directory.
 - Python returns an empty dataframe with a stable schema when matched scenes
   contain no valid pixels. rOPTRAM generally skips empty scenes and uses
   `NULL` for several empty-input cases.
-- Python feature input filters pixels to the supplied geometries and adds
-  `Feature_ID`; rOPTRAM's AOI path is intended primarily to label features for
-  plot coloring.
+- Like rOPTRAM intends, feature input labels pixels for feature plot coloring
+  without changing the VI-STR population. Pixels outside features remain with
+  a missing `Feature_ID`.
 
-These are documented compatibility differences. This milestone does not
-change scientific defaults, formulas, filtering thresholds, mask semantics,
-sampling behavior, or calculation order.
+Apparent rOPTRAM implementation bugs in feature joining, vegetation-index
+scaling, and exponential coefficient interpretation are not reproduced.
 
 ## Available API
 
@@ -153,6 +166,7 @@ sampling behavior, or calculation order.
 - `calculate_str`
 - `optram_calculate_str`
 - `optram_ndvi_str`
+- `optram_options`
 - `optram_wetdry_coefficients`
 - `calculate_soil_moisture`
 - `optram_calculate_soil_moisture`

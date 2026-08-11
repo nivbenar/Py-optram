@@ -7,6 +7,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .options import _UNSET, _resolve_optram_option
+
 
 ### Edge-point preparation
 
@@ -166,16 +168,30 @@ def optram_wetdry_coefficients(
     output_dir=None,
     vi_col="NDVI",
     str_col="STR",
-    method="linear",
-    vi_step=0.05,
+    method=_UNSET,
+    vi_step=_UNSET,
     wet_quantile=0.95,
     dry_quantile=0.05,
     min_bin_count=20,
-    rm_low_vi=False,
+    rm_low_vi=_UNSET,
     remove_outliers=True,
     return_outputs=False,
     export_roptram=False,
 ):
+    method = _resolve_optram_option(
+        "trapezoid_method",
+        method,
+        "method must be 'linear', 'polynomial', or 'exponential'",
+    )
+    vi_step = _resolve_optram_option(
+        "vi_step",
+        vi_step,
+        "vi_step must be numeric and greater than 0 and at most 0.02",
+    )
+    rm_low_vi = _resolve_optram_option(
+        "rm.low.vi", rm_low_vi, "rm_low_vi must be a boolean"
+    )
+
     data = _clean_vi_str(full_df, vi_col, str_col, rm_low_vi)
     edges_df = _edge_points(
         data,
@@ -230,13 +246,22 @@ def plot_vi_str_cloud(
     edges_df,
     vi_col="NDVI",
     str_col="STR",
-    edge_points=False,
-    plot_colors="none",
+    edge_points=_UNSET,
+    plot_colors=_UNSET,
     sample=True,
     ax=None,
     output_path=None,
 ):
     import matplotlib.pyplot as plt
+
+    edge_points = _resolve_optram_option(
+        "edge_points", edge_points, "edge_points must be a boolean"
+    )
+    plot_colors = _resolve_optram_option(
+        "plot_colors",
+        plot_colors,
+        "plot_colors must be a supported rOPTRAM plotting mode",
+    )
 
     plot_df = full_df.copy()
 
@@ -250,7 +275,7 @@ def plot_vi_str_cloud(
     if plot_colors == "density":
         points = ax.hexbin(plot_df[vi_col], plot_df[str_col], gridsize=120, cmap="viridis")
         plt.colorbar(points, ax=ax, label="count")
-    elif plot_colors == "contour":
+    elif plot_colors in ("contour", "contours"):
         ax.scatter(plot_df[vi_col], plot_df[str_col], color="green", alpha=0.2, s=0.3)
         ax.tricontour(plot_df[vi_col], plot_df[str_col], plot_df[str_col], colors="gray")
     elif plot_colors in ("month", "months") and "Month" in plot_df.columns:

@@ -8,7 +8,7 @@ import pytest
 import rasterio
 from rasterio.transform import from_origin
 
-from pyoptram import optram_ndvi_str
+from pyoptram import optram_ndvi_str, optram_wetdry_coefficients
 
 _TRANSFORM = from_origin(10.0, 20.0, 1.0, 1.0)
 
@@ -29,6 +29,29 @@ def _write_single_band_tif(path, array, dtype="float32"):
 
     with rasterio.open(path, "w", **profile) as dst:
         dst.write(array.astype(dtype), 1)
+
+
+def _write_vi_str_pair(tmp_path, ndvi=None, str_array=None):
+    ndvi_path = tmp_path / "NDVI_test.tif"
+    str_path = tmp_path / "STR_test.tif"
+    if ndvi is None:
+        ndvi = np.full((2, 2), 0.5, dtype=np.float32)
+    if str_array is None:
+        str_array = np.full((2, 2), 2.0, dtype=np.float32)
+    _write_single_band_tif(ndvi_path, ndvi)
+    _write_single_band_tif(str_path, str_array)
+    return ndvi_path, str_path
+
+
+def _feature_collection(properties, coordinates):
+    return {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": properties,
+            "geometry": {"type": "Polygon", "coordinates": [coordinates]},
+        }],
+    }
 
 
 ### Table construction and filtering
@@ -88,44 +111,120 @@ def test_optram_ndvi_str_scl_mask_filters_clouds(tmp_path):
     np.testing.assert_array_equal(sorted(dataframe["SCL"].to_numpy()), [4, 6])
 
 
-def test_optram_ndvi_str_features_filters_and_labels_pixels(tmp_path):
-    # Only pixels inside a feature polygon are kept, tagged with Feature_ID.
-    ndvi_path = tmp_path / "NDVI_test.tif"
-    str_path = tmp_path / "STR_test.tif"
-
+def test_optram_ndvi_str_features_label_without_filtering_pixels(tmp_path):
+    # Feature membership labels pixels without changing the VI-STR population.
     ndvi = np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32)
     str_array = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+    ndvi_path, str_path = _write_vi_str_pair(tmp_path, ndvi, str_array)
 
-    _write_single_band_tif(ndvi_path, ndvi)
-    _write_single_band_tif(str_path, str_array)
-
-    # Raster spans x:[10,12], y:[18,20]; this polygon covers only the right
-    # column of pixels (x in [11, 12]).
-    features_geojson = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "properties": {"ID": 7},
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [[[11, 18], [12, 18], [12, 20], [11, 20], [11, 18]]],
-                },
-            }
-        ],
-    }
+    # Raster spans x:[10,12], y:[18,20]; this polygon touches only the right
+    # column of pixels.
+    features_geojson = _feature_collection(
+        {"ID": 7},
+        [[11.1, 18.1], [11.9, 18.1], [11.9, 19.9],
+         [11.1, 19.9], [11.1, 18.1]],
+    )
 
     dataframe = optram_ndvi_str(
         [ndvi_path],
         [str_path],
         features=features_geojson,
-        feature_id_col="ID",
+        plot_colors="features",
     )
 
     assert "Feature_ID" in dataframe.columns
-    assert len(dataframe) == 2
-    assert (dataframe["Feature_ID"] == 7).all()
-    assert set(dataframe["col"]) == {1}
+    assert len(dataframe) == 4
+    assert (dataframe.loc[dataframe["col"] == 1, "Feature_ID"] == 7).all()
+    assert dataframe.loc[dataframe["col"] == 0, "Feature_ID"].isna().all()
+
+
+def test_optram_ndvi_str_ignores_features_outside_feature_plot_mode(tmp_path):
+    ndvi_path, str_path = _write_vi_str_pair(tmp_path)
+    features = _feature_collection(
+        {"ID": 7},
+        [[11.1, 18.1], [11.9, 18.1], [11.9, 19.9],
+         [11.1, 19.9], [11.1, 18.1]],
+    )
+
+    dataframe = optram_ndvi_str(
+        [ndvi_path], [str_path], features=features, plot_colors="no"
+    )
+
+    assert len(dataframe) == 4
+    assert "Feature_ID" not in dataframe.columns
+
+
+def test_optram_ndvi_str_does_not_invent_missing_feature_ids(tmp_path):
+    ndvi_path, str_path = _write_vi_str_pair(tmp_path)
+    features = _feature_collection(
+        {"ZONE": 7},
+        [[11.1, 18.1], [11.9, 18.1], [11.9, 19.9],
+         [11.1, 19.9], [11.1, 18.1]],
+    )
+
+    dataframe = optram_ndvi_str(
+        [ndvi_path], [str_path], features=features, plot_colors="feature"
+    )
+
+    assert len(dataframe) == 4
+    assert "Feature_ID" not in dataframe.columns
+
+
+def test_optram_ndvi_str_feature_rasterization_uses_all_touched(tmp_path):
+    ndvi_path, str_path = _write_vi_str_pair(tmp_path)
+    features = _feature_collection(
+        {"ID": 9},
+        [[11.01, 19.90], [11.10, 19.90], [11.10, 19.99],
+         [11.01, 19.99], [11.01, 19.90]],
+    )
+
+    dataframe = optram_ndvi_str(
+        [ndvi_path], [str_path], features=features, plot_colors="feature"
+    )
+
+    assert (dataframe["Feature_ID"] == 9).sum() == 1
+    assert dataframe["Feature_ID"].isna().sum() == 3
+
+
+def test_feature_labels_do_not_change_fitted_coefficients(tmp_path):
+    rng = np.random.default_rng(42)
+    ndvi_path = tmp_path / "NDVI_test.tif"
+    str_path = tmp_path / "STR_test.tif"
+    ndvi = rng.uniform(0.05, 0.85, size=(100, 100)).astype(np.float32)
+    dry = 0.2 + 0.5 * ndvi
+    wet = 0.8 + 2.0 * ndvi
+    str_array = dry + rng.uniform(size=ndvi.shape) * (wet - dry)
+    _write_single_band_tif(ndvi_path, ndvi)
+    _write_single_band_tif(str_path, str_array.astype(np.float32))
+    features = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {"ID": 3},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[60, -80], [110, -80], [110, 20],
+                                 [60, 20], [60, -80]]],
+            },
+        }],
+    }
+    unlabeled = optram_ndvi_str([ndvi_path], [str_path], random_state=0)
+    labeled = optram_ndvi_str(
+        [ndvi_path],
+        [str_path],
+        features=features,
+        plot_colors="features",
+        random_state=0,
+    )
+
+    _, unlabeled_coeffs, _ = optram_wetdry_coefficients(
+        unlabeled, vi_step=0.02, return_outputs=True
+    )
+    _, labeled_coeffs, _ = optram_wetdry_coefficients(
+        labeled, vi_step=0.02, return_outputs=True
+    )
+
+    pd.testing.assert_frame_equal(unlabeled_coeffs, labeled_coeffs)
 
 
 def test_optram_ndvi_str_scene_metadata_overrides_filename_parsing(tmp_path):
@@ -157,15 +256,15 @@ def test_optram_ndvi_str_scene_metadata_overrides_filename_parsing(tmp_path):
     assert dataframe.loc[0, "TimestampUTC"] == pd.Timestamp("2023-06-15T10:20:30Z")
 
 
-def test_optram_ndvi_str_max_tbl_size_caps_assembly(tmp_path):
-    # max_tbl_size stops assembly once the cap is reached, mid-scene if needed.
+def test_optram_ndvi_str_max_tbl_size_samples_each_scene_evenly(tmp_path):
+    # rOPTRAM divides max_tbl_size across scenes and samples each scene.
     ndvi_path_1 = tmp_path / "NDVI_a.tif"
     str_path_1 = tmp_path / "STR_a.tif"
     ndvi_path_2 = tmp_path / "NDVI_b.tif"
     str_path_2 = tmp_path / "STR_b.tif"
 
-    ndvi = np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32)
-    str_array = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+    ndvi = np.full((100, 120), 0.5, dtype=np.float32)
+    str_array = np.full((100, 120), 2.0, dtype=np.float32)
 
     _write_single_band_tif(ndvi_path_1, ndvi)
     _write_single_band_tif(str_path_1, str_array)
@@ -175,11 +274,23 @@ def test_optram_ndvi_str_max_tbl_size_caps_assembly(tmp_path):
     dataframe = optram_ndvi_str(
         [ndvi_path_1, ndvi_path_2],
         [str_path_1, str_path_2],
-        max_tbl_size=3,
+        max_tbl_size=10_000,
+        random_state=0,
     )
 
-    assert len(dataframe) == 3
-    assert set(dataframe["source_index"]) == {0}
+    assert len(dataframe) == 10_000
+    assert dataframe["source_index"].value_counts().to_dict() == {0: 5000, 1: 5000}
+
+
+@pytest.mark.parametrize("max_tbl_size", [9999, 0, -1, np.inf, np.nan])
+def test_optram_ndvi_str_rejects_invalid_roptram_table_size(tmp_path, max_tbl_size):
+    ndvi_path = tmp_path / "NDVI_a.tif"
+    str_path = tmp_path / "STR_a.tif"
+    _write_single_band_tif(ndvi_path, np.array([[0.5]], dtype=np.float32))
+    _write_single_band_tif(str_path, np.array([[2.0]], dtype=np.float32))
+
+    with pytest.raises(ValueError, match="at least 10000"):
+        optram_ndvi_str([ndvi_path], [str_path], max_tbl_size=max_tbl_size)
 
 
 def test_optram_ndvi_str_max_rows_downsamples_final_table(tmp_path):

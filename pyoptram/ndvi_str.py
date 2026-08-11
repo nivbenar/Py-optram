@@ -4,12 +4,15 @@
 
 import json
 import re
+from numbers import Real
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import rasterio
 from rasterio.transform import xy
+
+from .options import _UNSET, _resolve_optram_option
 
 _BASE_COLUMNS = [
     "X",
@@ -258,35 +261,31 @@ def _load_features(features):
 
 
 ### Burn feature IDs onto a raster grid for per-pixel membership lookup.
-# Zero represents pixels outside all features.
+# NaN represents pixels outside all features.
 def _rasterize_features(features, feature_id_col, transform, shape):
     from rasterio import features as rio_features
 
     shapes = []
-    for index, feature in enumerate(features, start=1):
+    for feature in features:
         properties = feature.get("properties") or {}
-        value = properties.get(feature_id_col) if feature_id_col else None
-
+        value = properties.get(feature_id_col)
         if value is None:
-            value = index
-        else:
-            try:
-                value = int(value)
-            except (TypeError, ValueError):
-                value = index
-
-        if value == 0:
-            # 0 is reserved to mean "no feature"; shift real IDs off it.
-            value = index
+            continue
+        if not isinstance(value, Real) or isinstance(value, bool):
+            raise ValueError(f"Feature property {feature_id_col!r} must be numeric")
 
         shapes.append((feature["geometry"], value))
+
+    if not shapes:
+        return np.full(shape, np.nan, dtype=np.float64)
 
     return rio_features.rasterize(
         shapes,
         out_shape=shape,
         transform=transform,
-        fill=0,
-        dtype="int32",
+        fill=np.nan,
+        all_touched=True,
+        dtype="float64",
     )
 
 
@@ -306,13 +305,14 @@ def optram_ndvi_str(
     ndvi_paths,
     str_paths,
     output_csv=None,
-    rm_low_vi=False,
-    rm_hi_str=False,
+    rm_low_vi=_UNSET,
+    rm_hi_str=_UNSET,
     scl_paths=None,
     scl_keep=None,
     features=None,
-    feature_id_col=None,
-    max_tbl_size=None,
+    feature_id_col=_UNSET,
+    plot_colors=_UNSET,
+    max_tbl_size=_UNSET,
     max_rows=None,
     scene_metadata=None,
     random_state=None,
@@ -342,12 +342,14 @@ def optram_ndvi_str(
         file. When given, only pixels that fall inside a feature are kept,
         and a Feature_ID column is added.
     feature_id_col : str, optional
-        Property name in `features` used to populate Feature_ID. Falls back
-        to a 1-based feature index when omitted or missing on a feature.
+        Property name in `features` used to populate Feature_ID. Defaults to
+        rOPTRAM's ``"ID"`` option.
+    plot_colors : str, optional
+        Plot-color mode. Feature IDs are prepared only for ``"feature"`` or
+        ``"features"``, matching rOPTRAM.
     max_tbl_size : int, optional
-        Hard cap enforced while assembling the table: once this many rows
-        have been collected, remaining scenes are skipped. Bounds memory
-        use for very large jobs.
+        Maximum table size, divided evenly across input scenes. Oversized
+        scenes are randomly sampled to their share. Defaults to 1,000,000.
     max_rows : int, optional
         If the assembled (and filtered) table exceeds this many rows, it is
         randomly downsampled to this size.
@@ -356,7 +358,7 @@ def optram_ndvi_str(
         TimestampUTC/Month/Tile are looked up from these records instead of
         being parsed from filenames, which is more robust.
     random_state : int, optional
-        Seed used for max_rows downsampling.
+        Seed used for per-scene and max_rows downsampling.
 
     Raises
     ------
@@ -364,6 +366,26 @@ def optram_ndvi_str(
         If required VI, STR, or supplied SCL files cannot be matched uniquely
         by scene filename.
     """
+    rm_low_vi = _resolve_optram_option(
+        "rm.low.vi", rm_low_vi, "rm_low_vi must be a boolean"
+    )
+    rm_hi_str = _resolve_optram_option(
+        "rm.hi.str", rm_hi_str, "rm_hi_str must be a boolean"
+    )
+    feature_id_col = _resolve_optram_option(
+        "feature_col", feature_id_col, "feature_id_col must be a string"
+    )
+    plot_colors = _resolve_optram_option(
+        "plot_colors",
+        plot_colors,
+        "plot_colors must be a supported rOPTRAM plotting mode",
+    )
+    max_tbl_size = _resolve_optram_option(
+        "max_tbl_size",
+        max_tbl_size,
+        "max_tbl_size must be numeric and at least 10000",
+    )
+
     # Prepare input paths.
     ndvi_path_list = _as_path_list(ndvi_paths, "ndvi_paths")
     str_path_list = _as_path_list(str_paths, "str_paths")
@@ -371,23 +393,24 @@ def optram_ndvi_str(
     scl_path_list = _as_optional_path_list(scl_paths, "scl_paths")
     scene_pairs = _pair_scene_paths(ndvi_path_list, str_path_list, scl_path_list)
 
-    if max_tbl_size is not None and max_tbl_size < 1:
-        raise ValueError("max_tbl_size must be a positive integer")
     if max_rows is not None and max_rows < 1:
         raise ValueError("max_rows must be a positive integer")
 
     scl_keep_set = DEFAULT_SCL_KEEP if scl_keep is None else frozenset(int(v) for v in scl_keep)
-    feature_list = _load_features(features)
+    feature_list = None
+    if plot_colors in {"feature", "features"} and features is not None:
+        loaded_features = _load_features(features)
+        if any(feature_id_col in (feature.get("properties") or {})
+               for feature in loaded_features):
+            feature_list = loaded_features
     scene_lookup = _build_scene_lookup(scene_metadata)
 
     frames = []
-    total_rows = 0
     rasterized_features_cache = {}
+    scene_cap = int(max_tbl_size / len(scene_pairs))
+    rng = np.random.default_rng(random_state)
 
     for source_index, (ndvi_path, str_path, scl_path) in enumerate(scene_pairs):
-        if max_tbl_size is not None and total_rows >= max_tbl_size:
-            break
-
         # Read and validate one NDVI/STR raster pair.
         ndvi, ndvi_profile = _read_band(ndvi_path)
         str_array, str_profile = _read_band(str_path)
@@ -423,16 +446,15 @@ def optram_ndvi_str(
                     ndvi_profile["shape"],
                 )
                 rasterized_features_cache[cache_key] = feature_burn
-            valid &= feature_burn > 0
 
         rows, cols = np.where(valid)
         if len(rows) == 0:
             continue
 
-        if max_tbl_size is not None and total_rows + len(rows) > max_tbl_size:
-            keep_n = max_tbl_size - total_rows
-            rows = rows[:keep_n]
-            cols = cols[:keep_n]
+        if len(rows) > scene_cap:
+            selected = rng.choice(len(rows), size=scene_cap, replace=False)
+            rows = rows[selected]
+            cols = cols[selected]
 
         # Convert raster pixels to dataframe rows.
         xs, ys = xy(ndvi_profile["transform"], rows, cols)
@@ -459,7 +481,6 @@ def optram_ndvi_str(
             row_data["Feature_ID"] = feature_burn[rows, cols]
 
         frames.append(pd.DataFrame(row_data))
-        total_rows += len(rows)
 
     columns = list(_BASE_COLUMNS)
     if scl_path_list is not None:

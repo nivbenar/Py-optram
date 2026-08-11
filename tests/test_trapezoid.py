@@ -3,8 +3,9 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 
-from pyoptram import optram_wetdry_coefficients
+from pyoptram import optram_wetdry_coefficients, plot_vi_str_cloud
 from pyoptram.soil_moisture import _parse_coefficients
 
 
@@ -12,7 +13,7 @@ from pyoptram.soil_moisture import _parse_coefficients
 
 def _fitting_dataframe():
     rng = np.random.default_rng(42)
-    ndvi = np.repeat(np.linspace(0.05, 0.85, 17), 80)
+    ndvi = rng.uniform(0.05, 0.85, 20_000)
     wet_line = 0.8 + 2.0 * ndvi
     dry_line = 0.2 + 0.5 * ndvi
     position = rng.uniform(0.0, 1.0, size=ndvi.size)
@@ -29,7 +30,7 @@ def test_optram_wetdry_coefficients_returns_rmse_coefficients_and_edges():
     rmse_df, coeffs_df, edges_df = optram_wetdry_coefficients(
         dataframe,
         method="linear",
-        vi_step=0.1,
+        vi_step=0.02,
         min_bin_count=20,
         return_outputs=True,
     )
@@ -41,6 +42,24 @@ def test_optram_wetdry_coefficients_returns_rmse_coefficients_and_edges():
     assert rmse_df.loc[0, "RMSE dry"] >= 0
 
 
+def test_optram_wetdry_coefficients_uses_roptram_defaults():
+    rmse_df, coeffs_df, edges_df = optram_wetdry_coefficients(
+        _fitting_dataframe(),
+        min_bin_count=20,
+        return_outputs=True,
+    )
+
+    assert coeffs_df["method"].unique().tolist() == ["linear"]
+    assert len(edges_df) > 100
+    assert (rmse_df >= 0).all(axis=None)
+
+
+@pytest.mark.parametrize("vi_step", [0, -0.001, 0.021, np.inf, np.nan])
+def test_optram_wetdry_coefficients_rejects_invalid_vi_step(vi_step):
+    with pytest.raises(ValueError, match="vi_step"):
+        optram_wetdry_coefficients(_fitting_dataframe(), vi_step=vi_step)
+
+
 ### rOPTRAM-compatible exports
 
 def test_exports_and_round_trips_roptram_linear_coefficients_exactly(tmp_path):
@@ -48,7 +67,7 @@ def test_exports_and_round_trips_roptram_linear_coefficients_exactly(tmp_path):
         _fitting_dataframe(),
         output_dir=tmp_path,
         method="linear",
-        vi_step=0.1,
+        vi_step=0.02,
         min_bin_count=20,
         return_outputs=True,
         export_roptram=True,
@@ -84,7 +103,7 @@ def test_exports_and_round_trips_roptram_polynomial_coefficients_exactly(tmp_pat
         _fitting_dataframe(),
         output_dir=tmp_path,
         method="polynomial",
-        vi_step=0.1,
+        vi_step=0.02,
         min_bin_count=20,
         return_outputs=True,
         export_roptram=True,
@@ -121,8 +140,36 @@ def test_roptram_compatibility_export_is_opt_in(tmp_path):
         _fitting_dataframe(),
         output_dir=tmp_path,
         method="linear",
-        vi_step=0.1,
+        vi_step=0.02,
         min_bin_count=20,
     )
 
     assert not (tmp_path / "coefficients_lin.csv").exists()
+
+
+### Plot options
+
+def test_plot_defaults_show_edge_points_like_roptram():
+    full_df = pd.DataFrame({"NDVI": [0.1, 0.2], "STR": [1.0, 1.2]})
+    edges_df = pd.DataFrame(
+        {
+            "VI": [0.1, 0.2],
+            "STR_wet": [1.1, 1.3],
+            "STR_dry": [0.8, 0.9],
+            "STR_wet_fit": [1.1, 1.3],
+            "STR_dry_fit": [0.8, 0.9],
+        }
+    )
+
+    ax = plot_vi_str_cloud(full_df, edges_df)
+
+    assert len(ax.collections) == 3
+
+
+def test_plot_rejects_unknown_color_mode():
+    full_df = pd.DataFrame({"NDVI": [0.1, 0.2], "STR": [1.0, 1.2]})
+    edges_df = pd.DataFrame(
+        {"VI": [0.1], "STR_wet_fit": [1.1], "STR_dry_fit": [0.8]}
+    )
+    with pytest.raises(ValueError, match="plot_colors"):
+        plot_vi_str_cloud(full_df, edges_df, plot_colors="rainbow")

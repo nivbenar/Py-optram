@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 import rasterio
 
+from .options import _UNSET, get_optram_option
+
 
 ### Input and coefficient helpers
 
@@ -162,15 +164,22 @@ def _parse_coefficients(coefficients, method=None):
 
 
 ### Calculate soil moisture from VI, STR, and fitted trapezoid edges.
-def calculate_soil_moisture(vi, str_array, coefficients, method=None, porosity=0.4, clip=False):
+def calculate_soil_moisture(vi, str_array, coefficients, method=_UNSET,
+                            porosity=_UNSET, clip=False):
+    if method is _UNSET:
+        method = get_optram_option("trapezoid_method")
+    if porosity is _UNSET:
+        porosity = get_optram_option("porosity")
+
     vi = np.asarray(vi, dtype=np.float32)
     str_array = np.asarray(str_array, dtype=np.float32)
 
     if vi.shape != str_array.shape:
         raise ValueError("vi and str_array must have the same shape")
 
-    if porosity <= 0:
-        raise ValueError("porosity must be positive")
+    if (not isinstance(porosity, (int, float)) or isinstance(porosity, bool)
+            or (not np.isnan(porosity) and not 0 < porosity < 1)):
+        raise ValueError("porosity must be numeric and greater than 0 and less than 1")
 
     parsed = _parse_coefficients(coefficients, method=method)
     method = parsed["method"]
@@ -195,7 +204,11 @@ def calculate_soil_moisture(vi, str_array, coefficients, method=None, porosity=0
 
 ### Calculate and write soil-moisture rasters from paired VI and STR files.
 def optram_calculate_soil_moisture(vi_paths, str_paths, coefficients, output_dir,
-                                   method=None, porosity=0.4, clip=False):
+                                   method=_UNSET, porosity=_UNSET, clip=False):
+    if method is _UNSET:
+        method = get_optram_option("trapezoid_method")
+    if porosity is _UNSET:
+        porosity = get_optram_option("porosity")
     vi_path_list = _as_path_list(vi_paths, "vi_paths")
     str_path_list = _as_path_list(str_paths, "str_paths")
 

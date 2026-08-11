@@ -7,6 +7,8 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
+from .options import _UNSET, get_optram_option
+
 
 ### Calculate STR from SWIR reflectance values scaled to 0-1.
 def calculate_str(swir):
@@ -57,7 +59,11 @@ def process_boa_file(tif_path, str_dir, swir_band):
 
 
 ### Create STR rasters for every BOA raster in a folder.
-def optram_calculate_str(boa_dir, str_dir=None, swir_band=11):
+def optram_calculate_str(boa_dir, str_dir=None, swir_band=_UNSET):
+    if swir_band is _UNSET:
+        swir_band = get_optram_option("SWIR_band")
+    if swir_band not in (11, 12):
+        raise ValueError("swir_band must be 11 or 12")
     prepared = prepare_str_inputs(boa_dir, str_dir)
 
     if prepared is None:

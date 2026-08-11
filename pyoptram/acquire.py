@@ -12,6 +12,8 @@ import warnings
 
 import requests
 
+from .options import _UNSET, _resolve_optram_option, get_optram_option
+
 
 TOKEN_URL = (
     "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/"
@@ -240,8 +242,12 @@ def load_aoi(aoi):
 
 
 ### Create output folders for VI, STR, and optional BOA and SCL rasters.
-def prepare_output_folders(output_dir, veg_index="NDVI", only_vi_str=False,
+def prepare_output_folders(output_dir, veg_index=_UNSET, only_vi_str=_UNSET,
                            download_scl=False):
+    if veg_index is _UNSET:
+        veg_index = get_optram_option("veg_index")
+    if only_vi_str is _UNSET:
+        only_vi_str = get_optram_option("only_vi_str")
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -262,8 +268,10 @@ def prepare_output_folders(output_dir, veg_index="NDVI", only_vi_str=False,
 ### Sentinel Hub scripts and catalog operations
 
 ### Return a Sentinel Hub evalscript for a supported VI, STR, BOA, or SCL.
-def load_evalscript(script_name, swir_band=11, scl_mask=False, scl_keep=None):
+def load_evalscript(script_name, swir_band=_UNSET, scl_mask=False, scl_keep=None):
     """Return a Sentinel Hub evalscript used by the Process API."""
+    if swir_band is _UNSET:
+        swir_band = get_optram_option("SWIR_band")
     vi_formulas = {
         "NDVI": "(sample.B08 - sample.B04) / (sample.B08 + sample.B04)",
         "SAVI": (
@@ -410,10 +418,15 @@ def search_catalog(
     from_date,
     to_date,
     token,
-    max_cloud=20,
+    max_cloud=_UNSET,
     limit=20,
     tile=None,
 ):
+    max_cloud = _resolve_optram_option(
+        "max_cloud",
+        max_cloud,
+        "max_cloud must be numeric and between 0 and 100",
+    )
     headers = {"Authorization": f"Bearer {token}"}
     request_limit = max(limit, 100) if tile is not None else limit
 
@@ -422,7 +435,7 @@ def search_catalog(
         "datetime": f"{from_date}T00:00:00Z/{to_date}T23:59:59Z",
         "collections": ["sentinel-2-l2a"],
         "limit": request_limit,
-        "filter": f"eo:cloud_cover <= {max_cloud}",
+        "filter": f"eo:cloud_cover < {max_cloud}",
     }
 
     response = requests.post(CATALOG_URL, headers=headers, json=payload, timeout=60)
@@ -438,13 +451,17 @@ def download_index(
     script_name,
     output_path,
     token,
-    swir_band=11,
+    swir_band=_UNSET,
     width=DEFAULT_MAX_SIZE,
     height=DEFAULT_MAX_SIZE,
-    overwrite=False,
+    overwrite=_UNSET,
     scl_mask=False,
     scl_keep=None,
 ):
+    if swir_band is _UNSET:
+        swir_band = get_optram_option("SWIR_band")
+    if overwrite is _UNSET:
+        overwrite = get_optram_option("overwrite")
     output_path = Path(output_path)
 
     if output_path.exists() and not overwrite:
@@ -518,21 +535,44 @@ def acquire_optram_inputs(
     client_id=None,
     client_secret=None,
     save_creds=True,
-    veg_index="NDVI",
-    swir_band=11,
-    max_cloud=20,
-    only_vi_str=True,
-    tile=None,
+    veg_index=_UNSET,
+    swir_band=_UNSET,
+    max_cloud=_UNSET,
+    only_vi_str=_UNSET,
+    tile=_UNSET,
     limit=20,
     width=DEFAULT_MAX_SIZE,
     height=DEFAULT_MAX_SIZE,
-    overwrite=False,
-    scl_mask=True,
+    overwrite=_UNSET,
+    scl_mask=_UNSET,
     download_scl=False,
     scl_keep=None,
 ):
-    if swir_band not in (11, 12):
-        raise ValueError("swir_band must be 11 or 12")
+    veg_index = _resolve_optram_option(
+        "veg_index",
+        veg_index,
+        "CDSE acquisition supports NDVI, SAVI, or MSAVI",
+    )
+    swir_band = _resolve_optram_option(
+        "SWIR_band", swir_band, "swir_band must be 11 or 12"
+    )
+    max_cloud = _resolve_optram_option(
+        "max_cloud",
+        max_cloud,
+        "max_cloud must be numeric and between 0 and 100",
+    )
+    only_vi_str = _resolve_optram_option(
+        "only_vi_str", only_vi_str, "only_vi_str must be a boolean"
+    )
+    tile = _resolve_optram_option(
+        "tileid", tile, "tile must be None or a five-character MGRS tile ID"
+    )
+    overwrite = _resolve_optram_option(
+        "overwrite", overwrite, "overwrite must be a boolean"
+    )
+    scl_mask = _resolve_optram_option(
+        "scm_mask", scl_mask, "scl_mask must be a boolean"
+    )
 
     if veg_index not in ("NDVI", "SAVI", "MSAVI"):
         raise ValueError("CDSE acquisition supports NDVI, SAVI, or MSAVI")

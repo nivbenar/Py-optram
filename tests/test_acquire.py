@@ -332,8 +332,8 @@ def test_load_evalscript_rejects_indices_without_roptram_cdse_scripts(veg_index)
 
 ### Acquisition workflow
 
-@pytest.mark.parametrize("veg_index", ["NDVI", "SAVI", "MSAVI"])
-def test_acquisition_propagates_vegetation_index(monkeypatch, tmp_path, veg_index):
+@pytest.fixture
+def acquisition_mocks(monkeypatch):
     scene = {
         "id": "S2_TEST_T36RXV",
         "properties": {
@@ -342,16 +342,58 @@ def test_acquisition_propagates_vegetation_index(monkeypatch, tmp_path, veg_inde
             "s2:mgrs_tile": "36RXV",
         },
     }
+    search_calls = []
     downloads = []
-
     monkeypatch.setattr(acquire, "get_cdse_token", lambda *args: "token")
-    monkeypatch.setattr(acquire, "search_catalog", lambda **kwargs: [scene])
+    monkeypatch.setattr(
+        acquire,
+        "search_catalog",
+        lambda **kwargs: search_calls.append(kwargs) or [scene],
+    )
+    monkeypatch.setattr(
+        acquire,
+        "download_index",
+        lambda **kwargs: downloads.append(kwargs) or str(kwargs["output_path"]),
+    )
+    return search_calls, downloads
 
-    def fake_download_index(**kwargs):
-        downloads.append(kwargs)
-        return str(kwargs["output_path"])
 
-    monkeypatch.setattr(acquire, "download_index", fake_download_index)
+def test_acquisition_defaults_match_roptram(tmp_path, acquisition_mocks):
+    search_calls, downloads = acquisition_mocks
+
+    acquire.acquire_optram_inputs(
+        aoi=(34.0, 31.0, 34.1, 31.1),
+        from_date="2024-01-01",
+        to_date="2024-01-03",
+        output_dir=tmp_path,
+        client_id="id",
+        client_secret="secret",
+    )
+
+    assert search_calls[0]["max_cloud"] == 12
+    assert [call["script_name"] for call in downloads] == ["NDVI", "STR", "BOA"]
+    assert downloads[0]["scl_mask"] is True
+
+
+@pytest.mark.parametrize("max_cloud", [-1, 101, float("inf"), float("nan"), "12"])
+def test_acquisition_rejects_invalid_max_cloud(tmp_path, max_cloud):
+    with pytest.raises(ValueError, match="max_cloud"):
+        acquire.acquire_optram_inputs(
+            aoi=(34.0, 31.0, 34.1, 31.1),
+            from_date="2024-01-01",
+            to_date="2024-01-03",
+            output_dir=tmp_path,
+            client_id="id",
+            client_secret="secret",
+            max_cloud=max_cloud,
+        )
+
+
+@pytest.mark.parametrize("veg_index", ["NDVI", "SAVI", "MSAVI"])
+def test_acquisition_propagates_vegetation_index(
+    tmp_path, veg_index, acquisition_mocks
+):
+    _, downloads = acquisition_mocks
 
     results = acquire.acquire_optram_inputs(
         aoi=(34.0, 31.0, 34.1, 31.1),

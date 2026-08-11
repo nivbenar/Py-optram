@@ -1,13 +1,15 @@
 ### Soil-Moisture Compatibility Tests
 # Verifies rOPTRAM coefficient parsing and public soil-moisture defaults.
 
-import inspect
-
 import numpy as np
 import pandas as pd
 import pytest
 
-from pyoptram import calculate_soil_moisture, optram_calculate_soil_moisture
+from pyoptram import (
+    calculate_soil_moisture,
+    optram_calculate_soil_moisture,
+    optram_options,
+)
 from pyoptram.soil_moisture import _parse_coefficients
 
 
@@ -91,10 +93,8 @@ def test_rejects_roptram_exponential_coefficient_file(tmp_path):
 ### Public soil-moisture behavior
 
 def test_public_soil_moisture_defaults_match_roptram():
-    for function in (calculate_soil_moisture, optram_calculate_soil_moisture):
-        parameters = inspect.signature(function).parameters
-        assert parameters["porosity"].default == 0.4
-        assert parameters["clip"].default is False
+    optram_options(reset=True, show_opts=False)
+    assert optram_options(show_opts=False)["porosity"] == 0.4
 
 
 def test_default_soil_moisture_equals_explicit_roptram_behavior_without_clipping():
@@ -111,3 +111,32 @@ def test_default_soil_moisture_equals_explicit_roptram_behavior_without_clipping
 
     np.testing.assert_array_equal(default, explicit)
     np.testing.assert_allclose(default, [0.6, -0.2])
+
+
+@pytest.mark.parametrize("porosity", [0, -0.1, 1, 1.1, np.inf])
+def test_soil_moisture_rejects_porosity_outside_roptram_range(porosity):
+    with pytest.raises(ValueError, match="greater than 0 and less than 1"):
+        calculate_soil_moisture(
+            np.array([0.5]),
+            np.array([1.0]),
+            {
+                "method": "linear",
+                "dry": {"intercept": 2.0, "slope": 0.0},
+                "wet": {"intercept": 0.0, "slope": 0.0},
+            },
+            porosity=porosity,
+        )
+
+
+def test_soil_moisture_preserves_roptram_observable_na_porosity_behavior():
+    result = calculate_soil_moisture(
+        np.array([0.5]),
+        np.array([1.0]),
+        {
+            "method": "linear",
+            "dry": {"intercept": 2.0, "slope": 0.0},
+            "wet": {"intercept": 0.0, "slope": 0.0},
+        },
+        porosity=np.nan,
+    )
+    assert np.isnan(result[0])
