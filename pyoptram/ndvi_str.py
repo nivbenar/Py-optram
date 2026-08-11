@@ -326,10 +326,12 @@ def optram_ndvi_str(
         prefix. Every scene must have exactly one VI and one STR file.
     output_csv : path, optional
         If given, write the resulting dataframe to this CSV path.
-    rm_low_vi : bool
-        Drop pixels with NDVI <= 0.005 (thin/absent vegetation).
-    rm_hi_str : bool
-        Drop STR outliers above Q3 + 1.5 * IQR.
+    rm_low_vi : bool, optional
+        Drop pixels with NDVI <= 0.005. Defaults to the ``rm.low.vi`` option,
+        initially false.
+    rm_hi_str : bool, optional
+        Drop STR values at or above Q3 + 1.5 * IQR. Defaults to the
+        ``rm.hi.str`` option, initially false.
     scl_paths : path or list of paths, optional
         Sentinel-2 Scene Classification Layer rasters, one per scene, used
         to mask out clouds/shadows/snow. Must be on the same grid as the
@@ -339,8 +341,9 @@ def optram_ndvi_str(
         soils, water, unclassified). Only used when scl_paths is given.
     features : dict or path, optional
         A GeoJSON Feature/FeatureCollection (dict) or a path to a vector
-        file. When given, only pixels that fall inside a feature are kept,
-        and a Feature_ID column is added.
+        file. Features label pixels only when ``plot_colors`` is ``"feature"``
+        or ``"features"``; they never change the valid VI-STR population.
+        Pixels outside all features receive a missing ``Feature_ID``.
     feature_id_col : str, optional
         Property name in `features` used to populate Feature_ID. Defaults to
         rOPTRAM's ``"ID"`` option.
@@ -364,7 +367,23 @@ def optram_ndvi_str(
     ------
     ValueError
         If required VI, STR, or supplied SCL files cannot be matched uniquely
-        by scene filename.
+        by scene filename, grids differ, or a configured value is invalid.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Valid paired pixels with coordinates, timestamp/month/tile metadata,
+        VI and STR values, source/pixel provenance, and optional ``SCL`` and
+        ``Feature_ID`` columns.
+
+    Notes
+    -----
+    Finite VI values in [-1, 1] and positive STR values are retained before
+    configured filters. ``max_tbl_size`` is divided evenly across scenes and
+    oversized scenes are randomly sampled. Unlike rOPTRAM, output is written
+    only when ``output_csv`` is supplied, and the format is CSV rather than
+    RDS. Feature labeling implements rOPTRAM's intended behavior without its
+    broken dataframe join.
     """
     rm_low_vi = _resolve_optram_option(
         "rm.low.vi", rm_low_vi, "rm_low_vi must be a boolean"

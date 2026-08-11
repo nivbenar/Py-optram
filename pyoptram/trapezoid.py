@@ -29,6 +29,7 @@ def _clean_vi_str(dataframe, vi_col, str_col, rm_low_vi):
 
 ### Remove STR outliers inside one VI interval.
 def _remove_interval_outliers(group, str_col):
+    """Remove STR outliers using rOPTRAM's scaled-IQR interval bounds."""
     q1 = group[str_col].quantile(0.25)
     q3 = group[str_col].quantile(0.75)
     iqr = (q3 - q1) / 1.349
@@ -48,6 +49,16 @@ def _edge_points(
     min_bin_count,
     remove_outliers,
 ):
+    """Extract wet and dry STR quantiles across VI intervals.
+
+    The range is the rounded 2nd--99th VI percentile range. Each interval
+    must retain ``min_bin_count`` values, optionally after scaled-IQR outlier
+    removal. Wet and dry points use the requested STR quantiles at the
+    interval midpoint.
+
+    Raises ``ValueError`` if no points remain or fewer than half the intervals
+    produce usable points.
+    """
     vi_min, vi_max = data[vi_col].quantile([0.02, 0.99]).round(2)
     vi_series = np.arange(vi_min, vi_max, vi_step)
     rows = []
@@ -102,6 +113,11 @@ def _predict(x, coeffs, method):
 
 ### Fit one wet or dry edge and calculate its RMSE.
 def _fit_edge(x, y, method):
+    """Fit one edge and return coefficients, fitted STR, and raw-scale RMSE.
+
+    Exponential edges use ``a * exp(b * VI)``, avoiding rOPTRAM's mismatch
+    between its exported log-intercept and later application equation.
+    """
     if method == "linear":
         slope, intercept = np.polyfit(x, y, 1)
         coeffs = {"slope": slope, "intercept": intercept}
@@ -178,6 +194,54 @@ def optram_wetdry_coefficients(
     return_outputs=False,
     export_roptram=False,
 ):
+    """Extract and fit wet and dry edges of a VI-STR trapezoid.
+
+    Parameters
+    ----------
+    full_df : pandas.DataFrame
+        Pixel table containing vegetation-index and STR columns.
+    output_dir : path-like, optional
+        Directory for CSV artifacts. No files are written when omitted.
+    vi_col, str_col : str
+        Input columns, defaulting to ``"NDVI"`` and ``"STR"``.
+    method : {"linear", "exponential", "polynomial"}, optional
+        Edge model. Defaults to ``trapezoid_method``, initially ``"linear"``.
+    vi_step : float, optional
+        VI interval width. Defaults to 0.005 and must be in ``(0, 0.02]``.
+    wet_quantile, dry_quantile : float
+        Interval STR quantiles, defaulting to 0.95 and 0.05.
+    min_bin_count : int, default 20
+        Minimum usable pixels in each interval.
+    rm_low_vi : bool, optional
+        Remove VI <= 0.005; defaults to the ``rm.low.vi`` option.
+    remove_outliers : bool, default True
+        Apply rOPTRAM's scaled-IQR rule within each interval.
+    return_outputs : bool, default False
+        Also return coefficient and fitted-edge dataframes.
+    export_roptram : bool, default False
+        Write an rOPTRAM-compatible coefficient CSV for linear or polynomial
+        fits.
+
+    Returns
+    -------
+    pandas.DataFrame or tuple
+        One-row wet/dry RMSE dataframe, or ``(rmse_df, coeffs_df, edges_df)``
+        when ``return_outputs`` is true.
+
+    Notes
+    -----
+    With ``output_dir``, writes ``trapezoid_points.csv``,
+    ``wetdry_coefficients.csv``, and ``wetdry_rmse.csv``. Compatibility export
+    adds ``coefficients_lin.csv`` or ``coefficients_pol.csv``. Exponential
+    compatibility export is intentionally unsupported because rOPTRAM's saved
+    coefficients are inconsistent with its application equation.
+
+    Raises
+    ------
+    ValueError
+        For invalid options, unusable data, insufficient edge points, or an
+        unsupported compatibility export.
+    """
     method = _resolve_optram_option(
         "trapezoid_method",
         method,
@@ -252,6 +316,36 @@ def plot_vi_str_cloud(
     ax=None,
     output_path=None,
 ):
+    """Plot a VI-STR cloud with fitted dry and wet trapezoid edges.
+
+    Parameters
+    ----------
+    full_df, edges_df : pandas.DataFrame
+        Pixel values and fitted edge points.
+    vi_col, str_col : str
+        Plot columns, defaulting to ``"NDVI"`` and ``"STR"``.
+    edge_points : bool, optional
+        Show quantile points. Defaults to ``edge_points``, initially true.
+    plot_colors : str, optional
+        Uniform, density, contour(s), feature(s), or month(s) coloring.
+        Defaults to ``plot_colors``, initially ``"no"``.
+    sample : bool, default True
+        Downsample tables with at least 400,000 rows for display.
+    ax : matplotlib.axes.Axes, optional
+        Existing axes; new axes are created when omitted.
+    output_path : path-like, optional
+        Image file written at 200 DPI when supplied.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        Axes containing the point cloud and fitted edges.
+
+    Raises
+    ------
+    ValueError
+        If option-backed plotting arguments are invalid.
+    """
     import matplotlib.pyplot as plt
 
     edge_points = _resolve_optram_option(

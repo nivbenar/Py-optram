@@ -26,6 +26,7 @@ def _as_path_list(paths, name):
 
 ### Evaluate a fitted wet or dry edge for the selected model.
 def _predict_edge(vi, coeffs, method):
+    """Evaluate one fitted linear, quadratic, or exponential STR edge."""
     if method == "linear":
         return coeffs["slope"] * vi + coeffs["intercept"]
     if method == "polynomial":
@@ -66,6 +67,13 @@ def _read_coeffs_table(coefficients):
 
 ### Normalize native and rOPTRAM coefficient schemas.
 def _parse_coefficients(coefficients, method=None):
+    """Normalize native and supported rOPTRAM coefficient representations.
+
+    Accepts a ``wet``/``dry`` dictionary, Python's two-row coefficient table,
+    or rOPTRAM's one-row linear and polynomial schemas. rOPTRAM exponential
+    files are rejected because their saved intercept semantics conflict with
+    the R soil-moisture equation.
+    """
     if isinstance(coefficients, dict):
         if "wet" not in coefficients or "dry" not in coefficients:
             raise ValueError("Coefficient dict must include 'wet' and 'dry' keys")
@@ -166,6 +174,45 @@ def _parse_coefficients(coefficients, method=None):
 ### Calculate soil moisture from VI, STR, and fitted trapezoid edges.
 def calculate_soil_moisture(vi, str_array, coefficients, method=_UNSET,
                             porosity=_UNSET, clip=False):
+    """Calculate volumetric soil moisture from VI and STR arrays.
+
+    Parameters
+    ----------
+    vi, str_array : array-like
+        Equal-shaped vegetation-index and STR arrays.
+    coefficients : dict, pandas.DataFrame, or path-like
+        Wet/dry coefficients in Py-optram's native schema or an rOPTRAM
+        linear/polynomial CSV schema.
+    method : {"linear", "exponential", "polynomial"}, optional
+        Model used to evaluate both edges. Defaults to the current
+        ``trapezoid_method`` option, initially ``"linear"``.
+    porosity : float, optional
+        Soil porosity multiplier in ``(0, 1)`` or ``NaN``. Defaults to the
+        rOPTRAM-compatible ``porosity`` option, initially 0.4.
+    clip : bool, default False
+        Clip finite output to ``[0, porosity]`` when true. rOPTRAM does not
+        clip by default.
+
+    Returns
+    -------
+    numpy.ndarray
+        Float32 volumetric water content. Invalid inputs and degenerate edge
+        separations remain ``NaN``.
+
+    Raises
+    ------
+    ValueError
+        For shape mismatch, invalid porosity/method, or incompatible or
+        incomplete coefficients.
+    TypeError
+        If the coefficient container type is unsupported.
+
+    Notes
+    -----
+    Relative wetness is ``(STR_dry - STR) / (STR_dry - STR_wet)`` and is
+    multiplied by porosity. Native exponential coefficients use the consistent
+    ``a * exp(b * VI)`` form; rOPTRAM exponential CSV files are not accepted.
+    """
     if method is _UNSET:
         method = get_optram_option("trapezoid_method")
     if porosity is _UNSET:
@@ -205,6 +252,42 @@ def calculate_soil_moisture(vi, str_array, coefficients, method=_UNSET,
 ### Calculate and write soil-moisture rasters from paired VI and STR files.
 def optram_calculate_soil_moisture(vi_paths, str_paths, coefficients, output_dir,
                                    method=_UNSET, porosity=_UNSET, clip=False):
+    """Calculate and write soil-moisture rasters from paired VI/STR files.
+
+    Parameters
+    ----------
+    vi_paths, str_paths : path-like or iterable of path-like
+        Equal-length, positionally paired raster paths. Each pair must have
+        identical shape, transform, and CRS.
+    coefficients : dict, pandas.DataFrame, or path-like
+        Coefficients accepted by :func:`calculate_soil_moisture`.
+    output_dir : path-like
+        Directory created for output GeoTIFFs.
+    method : {"linear", "exponential", "polynomial"}, optional
+        Defaults to ``trapezoid_method``, initially ``"linear"``.
+    porosity : float, optional
+        Defaults to the rOPTRAM-compatible option, initially 0.4.
+    clip : bool, default False
+        Optionally bound output to ``[0, porosity]``.
+
+    Returns
+    -------
+    list of str
+        Paths to one-band float32 rasters. ``STR_`` filename prefixes become
+        ``SM_``; other names receive an ``SM_`` prefix.
+
+    Raises
+    ------
+    ValueError
+        For empty or unequal path lists, raster-grid mismatch, invalid model
+        settings, or incompatible coefficients.
+
+    Notes
+    -----
+    Unlike rOPTRAM's date/directory interface, this Python API takes explicit
+    file pairs and returns every written path. Input NoData values are carried
+    to output as ``NaN``.
+    """
     if method is _UNSET:
         method = get_optram_option("trapezoid_method")
     if porosity is _UNSET:

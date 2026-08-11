@@ -47,7 +47,21 @@ def _cdse_credentials_file():
 
 ### Store CDSE OAuth credentials in the shared rOPTRAM-compatible file.
 def store_cdse_credentials(client_id=None, client_secret=None):
-    """Store CDSE OAuth credentials in rOPTRAM's platform-specific file."""
+    """Store CDSE OAuth credentials in rOPTRAM-compatible local storage.
+
+    Parameters
+    ----------
+    client_id, client_secret : str, optional
+        OAuth credentials. If either is omitted, both are read from the
+        ``OAUTH_CLIENTID`` and ``OAUTH_SECRET`` environment variables.
+
+    Returns
+    -------
+    None
+        Credentials are written as JSON under the platform-specific CDSE
+        directory used by rOPTRAM. Nothing is written when a complete pair is
+        unavailable; an unsupported platform emits ``RuntimeWarning``.
+    """
     credentials_file = _cdse_credentials_file()
     if credentials_file is None:
         warnings.warn(
@@ -72,7 +86,24 @@ def store_cdse_credentials(client_id=None, client_secret=None):
 
 ### Store CDSE OAuth credentials from a one-record CSV file.
 def store_cdse_credentials_from_file(path):
-    """Store CDSE OAuth credentials from a clientid,secret CSV file."""
+    """Store CDSE OAuth credentials from a one-record CSV file.
+
+    Parameters
+    ----------
+    path : path-like
+        CSV containing ``clientid`` and ``secret`` headers and exactly one
+        nonempty credential record.
+
+    Returns
+    -------
+    None
+        The record is saved through :func:`store_cdse_credentials`.
+
+    Raises
+    ------
+    ValueError
+        If headers, record count, or credential values are invalid.
+    """
     with Path(path).open(newline="", encoding="utf-8-sig") as credentials_file:
         reader = csv.DictReader(credentials_file)
         if reader.fieldnames is None or not {"clientid", "secret"}.issubset(reader.fieldnames):
@@ -93,7 +124,16 @@ def store_cdse_credentials_from_file(path):
 
 ### Retrieve CDSE OAuth credentials from platform-specific storage.
 def retrieve_cdse_credentials():
-    """Retrieve CDSE OAuth credentials stored by Py-optram or rOPTRAM."""
+    """Retrieve CDSE credentials stored by Py-optram or rOPTRAM.
+
+    Returns
+    -------
+    dict or None
+        ``{"clientid": ..., "secret": ...}`` from the shared
+        platform-specific JSON file, or ``None`` when usable credentials are
+        unavailable. Missing storage and unsupported platforms emit
+        ``RuntimeWarning``.
+    """
     credentials_file = _cdse_credentials_file()
     if credentials_file is None:
         warnings.warn(
@@ -140,6 +180,24 @@ def _raise_for_status(response, context):
 
 ### Request a CDSE access token with client credentials.
 def get_cdse_token(client_id, client_secret):
+    """Request a Copernicus Data Space access token.
+
+    Parameters
+    ----------
+    client_id, client_secret : str
+        CDSE OAuth client credentials.
+
+    Returns
+    -------
+    str
+        The ``access_token`` returned by the CDSE identity service.
+
+    Raises
+    ------
+    requests.HTTPError
+        If authentication fails. The exception reports the HTTP status but
+        does not expose the supplied secret.
+    """
     response = requests.post(
         TOKEN_URL,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -270,6 +328,18 @@ def load_aoi(aoi):
 ### Create output folders for VI, STR, and optional BOA and SCL rasters.
 def prepare_output_folders(output_dir, veg_index=_UNSET, only_vi_str=_UNSET,
                            download_scl=False):
+    """Create acquisition output directories for requested products.
+
+    ``veg_index`` and ``only_vi_str`` default to their current package
+    options, initially ``"NDVI"`` and ``False``. VI and STR directories are
+    always created; BOA is omitted when ``only_vi_str`` is true, and SCL is
+    created only when ``download_scl`` is true.
+
+    Returns
+    -------
+    dict
+        Product keys mapped to created :class:`pathlib.Path` directories.
+    """
     if veg_index is _UNSET:
         veg_index = get_optram_option("veg_index")
     if only_vi_str is _UNSET:
@@ -448,6 +518,37 @@ def search_catalog(
     limit=20,
     tile=None,
 ):
+    """Search the Sentinel-2 L2A catalog and apply cloud/tile limits.
+
+    Parameters
+    ----------
+    aoi_geometry : dict
+        GeoJSON Polygon or MultiPolygon used as the spatial intersection.
+    from_date, to_date : str
+        Inclusive catalog timestamps expressed as validated ``YYYY-MM-DD``
+        dates. Acquisition requires ``to_date > from_date``.
+    token : str
+        CDSE access token.
+    max_cloud : float, optional
+        Strict upper cloud-cover bound. Defaults to the rOPTRAM-compatible
+        ``max_cloud`` option, initially 12.
+    limit : int, default 20
+        Maximum number of returned scenes.
+    tile : str or None, default None
+        Optional five-character MGRS tile identifier.
+
+    Returns
+    -------
+    list of dict
+        Catalog feature records, after optional tile filtering.
+
+    Raises
+    ------
+    ValueError
+        If ``max_cloud`` is outside 0--100 or is not finite numeric data.
+    requests.HTTPError
+        If the catalog request fails.
+    """
     max_cloud = _resolve_optram_option(
         "max_cloud",
         max_cloud,
@@ -484,6 +585,44 @@ def download_index(
     scl_mask=False,
     scl_keep=None,
 ):
+    """Download one VI, STR, BOA, or SCL GeoTIFF through the Process API.
+
+    Parameters
+    ----------
+    aoi_geometry : dict
+        GeoJSON acquisition geometry.
+    scene_datetime : str
+        Exact catalog scene timestamp used for the Process API time range.
+    script_name : {"NDVI", "SAVI", "MSAVI", "STR", "BOA", "SCL"}
+        Product evalscript to run.
+    output_path : path-like
+        Destination GeoTIFF.
+    token : str
+        CDSE access token.
+    swir_band : {11, 12}, optional
+        STR band; defaults to the current option, initially 11.
+    width, height : int, default 2500
+        Process API output dimensions.
+    overwrite : bool, optional
+        Defaults to the current rOPTRAM-compatible option, initially false.
+    scl_mask : bool, default False
+        Apply SCL masking to a supported VI evalscript.
+    scl_keep : iterable of int, optional
+        SCL classes retained by a masked VI; defaults to 2, 4, 5, and 10.
+
+    Returns
+    -------
+    str
+        Output path. An existing file is returned without downloading unless
+        ``overwrite`` is true.
+
+    Raises
+    ------
+    ValueError
+        If ``script_name`` is unsupported.
+    requests.HTTPError
+        If the Process API request fails.
+    """
     if swir_band is _UNSET:
         swir_band = get_optram_option("SWIR_band")
     if overwrite is _UNSET:
@@ -574,6 +713,69 @@ def acquire_optram_inputs(
     download_scl=False,
     scl_keep=None,
 ):
+    """Acquire Sentinel-2 VI and STR inputs from Copernicus Data Space.
+
+    Parameters
+    ----------
+    aoi : dict, path-like, or sequence of four numbers
+        GeoJSON geometry/Feature/FeatureCollection, vector-file path, or
+        ``(minx, miny, maxx, maxy)`` bounding box. FeatureCollections are
+        geometrically unioned before acquisition, matching rOPTRAM.
+    from_date, to_date : str
+        ``YYYY-MM-DD`` range with ``to_date`` strictly later than
+        ``from_date``.
+    output_dir : path-like
+        Parent directory for VI, STR, optional BOA, and optional SCL rasters.
+    client_id, client_secret : str, optional
+        Explicit OAuth credentials. A stored pair is used if either is
+        omitted.
+    save_creds : bool, default True
+        Save an explicit credential pair only after successful authentication.
+    veg_index : {"NDVI", "SAVI", "MSAVI"}, optional
+        Acquired VI. Defaults to the current ``veg_index`` option, initially
+        ``"NDVI"``. CI and BSCI have no rOPTRAM CDSE evalscripts.
+    swir_band : {11, 12}, optional
+        STR band; defaults to 11 through ``SWIR_band``.
+    max_cloud : float, optional
+        Strict catalog cloud-cover bound; defaults to 12.
+    only_vi_str : bool, optional
+        Skip BOA downloads when true. Defaults to false.
+    tile : str or None, optional
+        Five-character MGRS tile; defaults to the ``tileid`` option.
+    limit : int, default 20
+        Maximum catalog scenes to process.
+    width, height : int, default 2500
+        Output dimensions, each limited to 2500 pixels.
+    overwrite : bool, optional
+        Redownload existing outputs; defaults to false.
+    scl_mask : bool, optional
+        Mask acquired VI pixels using SCL; defaults to true.
+    download_scl : bool, default False
+        Also download raw SCL rasters.
+    scl_keep : iterable of int, optional
+        Classes retained by the VI mask; defaults to 2, 4, 5, and 10.
+
+    Returns
+    -------
+    dict
+        Lists keyed by the selected VI, ``STR``, ``BOA``, ``SCL``, and
+        ``scenes``. Scene records contain paths, timestamp, tile, cloud cover,
+        and catalog ID. ``scl_keep`` is included when explicitly supplied.
+
+    Raises
+    ------
+    ValueError
+        For invalid options, dimensions, dates, unsupported acquisition VIs,
+        or unavailable credentials.
+    requests.HTTPError
+        If authentication, catalog search, or a download fails.
+
+    Notes
+    -----
+    This implements rOPTRAM's CDSE/Sentinel Hub path only. Its openEO,
+    seasonal, area-coverage, saved-catalog, and metre-resolution workflows are
+    not implemented here.
+    """
     veg_index = _resolve_optram_option(
         "veg_index",
         veg_index,

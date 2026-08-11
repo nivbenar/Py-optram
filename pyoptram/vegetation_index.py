@@ -31,12 +31,37 @@ def _scaled_band(img_stack, band_number, scale_factor):
 ### Calculate a selected vegetation index from scaled raster bands.
 def calculate_vi(img_stack, veg_index=_UNSET, redband=4, greenband=3, blueband=2,
                  nirband=5, scale_factor=2**15):
-    """Calculate a vegetation index from a band-first raster array.
+    """Calculate an rOPTRAM vegetation index from a band-first array.
 
-    Band numbers are one-based, as in rOPTRAM's ``calculate_vi`` function.
-    Unlike the current R implementation, scaling is applied once rather than
-    twice, and only the bands needed by the selected index are required. These
-    are intentional corrections of apparent rOPTRAM implementation errors.
+    Parameters
+    ----------
+    img_stack : array-like
+        Raster values with bands on the first axis.
+    veg_index : {"NDVI", "SAVI", "MSAVI", "CI", "BSCI"}, optional
+        Index to calculate. Defaults to the current ``veg_index`` option,
+        initially ``"NDVI"``.
+    redband, greenband, blueband, nirband : int
+        One-based band numbers, matching rOPTRAM. Defaults are 4, 3, 2,
+        and 5 respectively. Only bands required by the selected index are read.
+    scale_factor : float, default 32768
+        Positive finite divisor used when scaling each required band to the
+        0--255 range after subtracting its finite minimum.
+
+    Returns
+    -------
+    numpy.ndarray
+        Floating-point vegetation-index values with the input spatial shape.
+
+    Raises
+    ------
+    ValueError
+        If the index, scale factor, array shape, or a required band is invalid.
+
+    Notes
+    -----
+    rOPTRAM's current R code applies its scaling block twice and requires a
+    12-band stack. This implementation intentionally scales once and requires
+    only the bands used by the selected index.
     """
     if veg_index is _UNSET:
         veg_index = get_optram_option("veg_index")

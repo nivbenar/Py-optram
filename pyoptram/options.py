@@ -102,6 +102,30 @@ def _resolve_optram_option(name, value=_UNSET, error_message=None):
 
 ### Display, set, or reset rOPTRAM-compatible session options.
 def optram_options(opt_name=None, opt_value=_UNSET, show_opts=True, reset=False):
+    """Display, update, or reset implemented rOPTRAM-compatible options.
+
+    Parameters
+    ----------
+    opt_name : str, optional
+        Option to update. Omitting it leaves the current options unchanged.
+    opt_value : object, optional
+        New value, validated according to ``opt_name``. The implemented
+        defaults match rOPTRAM.
+    show_opts : bool, default True
+        Print every current option after applying the requested operation.
+    reset : bool, default False
+        Restore all implemented options to their rOPTRAM defaults first.
+
+    Returns
+    -------
+    dict
+        A copy of the current implemented option values.
+
+    Raises
+    ------
+    ValueError
+        If the option name is unknown or its value fails validation.
+    """
     if reset:
         _options.clear()
         _options.update(_default_options())

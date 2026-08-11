@@ -12,6 +12,19 @@ from .options import _UNSET, get_optram_option
 
 ### Calculate STR from SWIR reflectance values scaled to 0-1.
 def calculate_str(swir):
+    """Calculate SWIR Transformed Reflectance from scaled SWIR values.
+
+    Parameters
+    ----------
+    swir : array-like
+        Surface-reflectance values on the 0--1 scale.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(1 - SWIR) ** 2 / (2 * SWIR)`` for positive SWIR values. Zero,
+        negative, and invalid inputs produce ``NaN``.
+    """
     with np.errstate(divide="ignore", invalid="ignore"):
         return np.where(swir > 0, ((1.0 - swir) ** 2) / (2.0 * swir), np.nan)
 
@@ -60,6 +73,35 @@ def process_boa_file(tif_path, str_dir, swir_band):
 
 ### Create STR rasters for every BOA raster in a folder.
 def optram_calculate_str(boa_dir, str_dir=None, swir_band=_UNSET):
+    """Create STR rasters from every ``BOA_*.tif`` in a directory.
+
+    Parameters
+    ----------
+    boa_dir : path-like
+        Directory containing multiband bottom-of-atmosphere GeoTIFFs.
+    str_dir : path-like, optional
+        Output directory. Defaults to a sibling ``STR`` directory.
+    swir_band : {11, 12}, optional
+        One-based BOA band to transform. Defaults to the current
+        ``SWIR_band`` option, initially 11.
+
+    Returns
+    -------
+    list of str or None
+        Written STR paths, or ``None`` when the BOA directory or matching
+        inputs do not exist.
+
+    Notes
+    -----
+    Input DN values are divided by 10,000. Each output is a one-band
+    float32 GeoTIFF whose filename replaces ``BOA`` with ``STR``; existing
+    outputs are overwritten, matching rOPTRAM's batch behavior.
+
+    Raises
+    ------
+    ValueError
+        If ``swir_band`` is not 11 or 12, or is unavailable in an input.
+    """
     if swir_band is _UNSET:
         swir_band = get_optram_option("SWIR_band")
     if swir_band not in (11, 12):
