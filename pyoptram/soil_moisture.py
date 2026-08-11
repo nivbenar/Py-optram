@@ -1,3 +1,7 @@
+### OPTRAM Soil-Moisture Calculation
+# Converts VI-STR positions between fitted wet and dry trapezoid edges to
+# soil moisture, and applies the calculation to paired raster files.
+
 from pathlib import Path
 
 import numpy as np
@@ -7,6 +11,7 @@ import rasterio
 
 ### Input and coefficient helpers
 
+### Normalize one path or an iterable of paths to a non-empty list.
 def _as_path_list(paths, name):
     if isinstance(paths, (str, Path)):
         return [Path(paths)]
@@ -17,6 +22,7 @@ def _as_path_list(paths, name):
     return path_list
 
 
+### Evaluate a fitted wet or dry edge for the selected model.
 def _predict_edge(vi, coeffs, method):
     if method == "linear":
         return coeffs["slope"] * vi + coeffs["intercept"]
@@ -27,6 +33,7 @@ def _predict_edge(vi, coeffs, method):
     raise ValueError("method must be 'linear', 'polynomial', or 'exponential'")
 
 
+### Extract one edge's coefficients from a coefficient-table row.
 def _coeffs_from_row(row, method):
     if method == "linear":
         return {"slope": float(row["slope"]), "intercept": float(row["intercept"])}
@@ -41,6 +48,7 @@ def _coeffs_from_row(row, method):
     raise ValueError("method must be 'linear', 'polynomial', or 'exponential'")
 
 
+### Load coefficients from a dataframe or CSV file.
 def _read_coeffs_table(coefficients):
     if isinstance(coefficients, pd.DataFrame):
         return coefficients.copy()
@@ -54,6 +62,7 @@ def _read_coeffs_table(coefficients):
     raise TypeError("coefficients must be a pandas DataFrame or path to a CSV table")
 
 
+### Normalize native and rOPTRAM coefficient schemas.
 def _parse_coefficients(coefficients, method=None):
     if isinstance(coefficients, dict):
         if "wet" not in coefficients or "dry" not in coefficients:
@@ -152,8 +161,7 @@ def _parse_coefficients(coefficients, method=None):
     return {"method": method, "wet": wet, "dry": dry}
 
 
-### Soil-moisture calculation
-
+### Calculate soil moisture from VI, STR, and fitted trapezoid edges.
 def calculate_soil_moisture(vi, str_array, coefficients, method=None, porosity=0.4, clip=False):
     vi = np.asarray(vi, dtype=np.float32)
     str_array = np.asarray(str_array, dtype=np.float32)
@@ -185,8 +193,7 @@ def calculate_soil_moisture(vi, str_array, coefficients, method=None, porosity=0
     return sm
 
 
-### Raster workflow
-
+### Calculate and write soil-moisture rasters from paired VI and STR files.
 def optram_calculate_soil_moisture(vi_paths, str_paths, coefficients, output_dir,
                                    method=None, porosity=0.4, clip=False):
     vi_path_list = _as_path_list(vi_paths, "vi_paths")

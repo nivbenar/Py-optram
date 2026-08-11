@@ -1,3 +1,7 @@
+### VI-STR Pixel-Table Assembly
+# Pairs vegetation-index and STR rasters by scene, filters their pixels, and
+# assembles spatial and scene metadata in a dataframe.
+
 import json
 import re
 from pathlib import Path
@@ -26,10 +30,8 @@ _BASE_COLUMNS = [
 DEFAULT_SCL_KEEP = frozenset({4, 5, 6, 7})
 
 
-### Scene path matching
-
+### Normalize one path or an iterable of paths to a non-empty list.
 def _as_path_list(paths, name):
-    # Accept one path or a list of paths.
     if isinstance(paths, (str, Path)):
         return [Path(paths)]
 
@@ -40,14 +42,15 @@ def _as_path_list(paths, name):
     return path_list
 
 
+### Normalize optional paths while preserving None.
 def _as_optional_path_list(paths, name):
-    # Same as _as_path_list, but allows None.
     if paths is None:
         return None
 
     return _as_path_list(paths, name)
 
 
+### Derive the filename portion shared by products from one scene.
 def _scene_key(path):
     """Return the filename portion shared by products from one scene."""
     stem = Path(path).stem
@@ -60,6 +63,7 @@ def _scene_key(path):
     return key
 
 
+### Index product paths by scene key and reject duplicate keys.
 def _paths_by_scene(paths, name):
     """Index paths by scene key, rejecting ambiguous product filenames."""
     indexed = {}
@@ -74,6 +78,7 @@ def _paths_by_scene(paths, name):
     return indexed
 
 
+### Pair VI, STR, and optional SCL paths while preserving STR order.
 def _pair_scene_paths(ndvi_paths, str_paths, scl_paths=None):
     """Pair required scene products by filename, preserving STR order."""
     ndvi_by_scene = _paths_by_scene(ndvi_paths, "VI files")
@@ -113,10 +118,8 @@ def _pair_scene_paths(ndvi_paths, str_paths, scl_paths=None):
     return pairs
 
 
-### Raster and metadata helpers
-
+### Read raster band 1 and convert NoData values to NaN.
 def _read_band(path):
-    # Read raster band 1 and convert NoData to NaN.
     with rasterio.open(path) as src:
         array = src.read(1).astype(np.float32)
         profile = {
@@ -132,8 +135,8 @@ def _read_band(path):
     return array, profile
 
 
+### Read a Scene Classification Layer as integer class codes.
 def _read_scl(path):
-    # Read the Scene Classification Layer as integer class codes.
     with rasterio.open(path) as src:
         array = src.read(1)
         profile = {
@@ -145,16 +148,15 @@ def _read_scl(path):
     return array, profile
 
 
+### Verify that two rasters describe the same pixel grid.
 def _check_same_grid(reference_profile, other_profile, reference_path, other_path):
-    # Two rasters must describe exactly the same pixel grid.
     for key, label in [("shape", "Shape"), ("transform", "Transform"), ("crs", "CRS")]:
         if reference_profile[key] != other_profile[key]:
             raise ValueError(f"{label} mismatch: {reference_path} and {other_path}")
 
 
+### Parse a timestamp and Sentinel tile from a pyOPTRAM filename.
 def _file_metadata(path):
-    # Pull timestamp and Sentinel tile from the pyoptram filename (fallback
-    # used when no scene_metadata record is available for this file).
     name = Path(path).stem
     timestamp_match = re.search(
         r"_(\d{4}-\d{2}-\d{2})(?:T(\d{2}-\d{2}-\d{2}(?:\.\d+)?))?",
@@ -174,10 +176,8 @@ def _file_metadata(path):
     return timestamp, month, tile
 
 
+### Index acquisition scene records by every raster path they reference.
 def _build_scene_lookup(scene_metadata):
-    # Index scene records (as returned by acquire_optram_inputs) by every
-    # raster path they reference, so metadata can be recovered without
-    # re-parsing filenames.
     if not scene_metadata:
         return {}
 
@@ -191,6 +191,7 @@ def _build_scene_lookup(scene_metadata):
     return lookup
 
 
+### Extract timestamp, month, and tile values from a scene record.
 def _metadata_from_scene_record(record):
     timestamp = pd.to_datetime(record.get("datetime"), utc=True, errors="coerce")
     month = timestamp.month if pd.notna(timestamp) else pd.NA
@@ -199,8 +200,8 @@ def _metadata_from_scene_record(record):
     return timestamp, month, tile
 
 
+### Resolve scene metadata from acquisition records or the VI filename.
 def _scene_metadata_for(ndvi_path, str_path, scene_lookup):
-    # Prefer an exact scene_metadata match; fall back to filename parsing.
     record = scene_lookup.get(str(ndvi_path)) or scene_lookup.get(str(str_path))
     if record is not None:
         return _metadata_from_scene_record(record)
@@ -209,9 +210,8 @@ def _scene_metadata_for(ndvi_path, str_path, scene_lookup):
 
 ### Feature filtering
 
+### Load feature input as a list of GeoJSON Feature dictionaries.
 def _load_features(features):
-    # Normalize a GeoJSON dict, Feature, FeatureCollection, or vector file
-    # path into a plain list of GeoJSON Feature dicts.
     if features is None:
         return None
 
@@ -257,10 +257,9 @@ def _load_features(features):
     return data["features"]
 
 
+### Burn feature IDs onto a raster grid for per-pixel membership lookup.
+# Zero represents pixels outside all features.
 def _rasterize_features(features, feature_id_col, transform, shape):
-    # Burn each feature's ID onto the raster grid so per-pixel membership is
-    # a single array lookup. Returns an int32 array where 0 means "outside
-    # every feature".
     from rasterio import features as rio_features
 
     shapes = []
@@ -293,8 +292,8 @@ def _rasterize_features(features, feature_id_col, transform, shape):
 
 ### VI-STR table assembly
 
+### Remove high STR outliers above Q3 + 1.5 * IQR.
 def _remove_high_str(dataframe):
-    # Remove high STR outliers with Q3 + 1.5 * IQR.
     q1 = dataframe["STR"].quantile(0.25)
     q3 = dataframe["STR"].quantile(0.75)
     cutoff = q3 + 1.5 * (q3 - q1)
@@ -302,6 +301,7 @@ def _remove_high_str(dataframe):
     return dataframe[dataframe["STR"] < cutoff].copy()
 
 
+### Assemble paired VI and STR raster pixels into a filtered dataframe.
 def optram_ndvi_str(
     ndvi_paths,
     str_paths,

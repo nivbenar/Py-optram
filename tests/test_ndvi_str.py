@@ -1,3 +1,7 @@
+### VI-STR Table-Assembly Tests
+# Verifies raster pairing, pixel filtering, scene metadata, feature masks,
+# table limits, and CSV output.
+
 import numpy as np
 import pandas as pd
 import pytest

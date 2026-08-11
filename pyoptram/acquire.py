@@ -1,3 +1,7 @@
+### Copernicus Data Space Acquisition
+# Stores CDSE credentials, searches the Sentinel-2 L2A catalog, and downloads
+# vegetation-index, STR, BOA, and optional SCL rasters for OPTRAM workflows.
+
 from datetime import datetime
 from pathlib import Path
 import csv
@@ -20,6 +24,7 @@ DEFAULT_MAX_SIZE = 2500
 
 ### Credential storage and retrieval
 
+### Return the platform-specific CDSE credentials-file path.
 def _cdse_credentials_file():
     system = platform.system()
     if system == "Windows":
@@ -36,6 +41,7 @@ def _cdse_credentials_file():
     return credentials_dir / "cdse_credentials.json"
 
 
+### Store CDSE OAuth credentials in the shared rOPTRAM-compatible file.
 def store_cdse_credentials(client_id=None, client_secret=None):
     """Store CDSE OAuth credentials in rOPTRAM's platform-specific file."""
     credentials_file = _cdse_credentials_file()
@@ -60,6 +66,7 @@ def store_cdse_credentials(client_id=None, client_secret=None):
     return None
 
 
+### Store CDSE OAuth credentials from a one-record CSV file.
 def store_cdse_credentials_from_file(path):
     """Store CDSE OAuth credentials from a clientid,secret CSV file."""
     with Path(path).open(newline="", encoding="utf-8-sig") as credentials_file:
@@ -80,6 +87,7 @@ def store_cdse_credentials_from_file(path):
     return None
 
 
+### Retrieve CDSE OAuth credentials from platform-specific storage.
 def retrieve_cdse_credentials():
     """Retrieve CDSE OAuth credentials stored by Py-optram or rOPTRAM."""
     credentials_file = _cdse_credentials_file()
@@ -114,7 +122,7 @@ def retrieve_cdse_credentials():
 
 ### CDSE request helpers
 
-# Raise HTTP errors with the server response body included.
+### Raise an HTTP error that includes the server response body.
 def _raise_for_status(response, context):
     try:
         response.raise_for_status()
@@ -126,7 +134,7 @@ def _raise_for_status(response, context):
         raise requests.HTTPError(message, response=response) from exc
 
 
-# Get a CDSE access token from manual client credentials.
+### Request a CDSE access token with client credentials.
 def get_cdse_token(client_id, client_secret):
     response = requests.post(
         TOKEN_URL,
@@ -150,7 +158,7 @@ def get_cdse_token(client_id, client_secret):
 
 ### Input validation and preparation
 
-# Make sure a date string is formatted as YYYY-MM-DD.
+### Validate and return a date string formatted as YYYY-MM-DD.
 def validate_date(date_text, name):
     try:
         datetime.strptime(date_text, "%Y-%m-%d")
@@ -160,7 +168,7 @@ def validate_date(date_text, name):
     return date_text
 
 
-# Read the first geometry from a vector file using geopandas.
+### Read and normalize the geometry from a vector file.
 def _geometry_from_vector_file(path):
     try:
         import geopandas as gpd
@@ -184,7 +192,7 @@ def _geometry_from_vector_file(path):
     ][0]["geometry"]
 
 
-# Convert a GeoJSON, vector file, or bbox AOI into GeoJSON geometry.
+### Convert a GeoJSON object, vector file, or bbox to GeoJSON geometry.
 def load_aoi(aoi):
     if isinstance(aoi, dict):
         if "type" not in aoi:
@@ -231,7 +239,7 @@ def load_aoi(aoi):
     )
 
 
-# Create output folders for VI, STR, and optionally BOA/SCL rasters.
+### Create output folders for VI, STR, and optional BOA and SCL rasters.
 def prepare_output_folders(output_dir, veg_index="NDVI", only_vi_str=False,
                            download_scl=False):
     output_dir = Path(output_dir)
@@ -253,7 +261,7 @@ def prepare_output_folders(output_dir, veg_index="NDVI", only_vi_str=False,
 
 ### Sentinel Hub scripts and catalog operations
 
-# Return the Sentinel Hub evalscript for a supported VI, STR, BOA, or SCL.
+### Return a Sentinel Hub evalscript for a supported VI, STR, BOA, or SCL.
 def load_evalscript(script_name, swir_band=11, scl_mask=False, scl_keep=None):
     """Return a Sentinel Hub evalscript used by the Process API."""
     vi_formulas = {
@@ -369,7 +377,7 @@ function evaluatePixel(sample) {
     raise ValueError(f"Unknown script_name: {script_name}")
 
 
-# Extract the Sentinel-2 MGRS tile from a catalog scene.
+### Extract the Sentinel-2 MGRS tile from a catalog scene.
 def _scene_tile(scene):
     properties = scene.get("properties", {})
 
@@ -387,7 +395,7 @@ def _scene_tile(scene):
     return None
 
 
-# Keep only scenes from the requested MGRS tile.
+### Keep only scenes from the requested MGRS tile.
 def _filter_scenes_by_tile(scenes, tile):
     if tile is None:
         return scenes
@@ -396,6 +404,7 @@ def _filter_scenes_by_tile(scenes, tile):
     return [scene for scene in scenes if _scene_tile(scene) == wanted]
 
 
+### Search the Sentinel-2 L2A catalog for matching scenes.
 def search_catalog(
     aoi_geometry,
     from_date,
@@ -405,7 +414,6 @@ def search_catalog(
     limit=20,
     tile=None,
 ):
-    # Search Sentinel-2 L2A scenes by AOI, date range, cloud cover, and tile.
     headers = {"Authorization": f"Bearer {token}"}
     request_limit = max(limit, 100) if tile is not None else limit
 
@@ -423,6 +431,7 @@ def search_catalog(
     return _filter_scenes_by_tile(scenes, tile)[:limit]
 
 
+### Download one GeoTIFF product through the Sentinel Hub Process API.
 def download_index(
     aoi_geometry,
     scene_datetime,
@@ -436,7 +445,6 @@ def download_index(
     scl_mask=False,
     scl_keep=None,
 ):
-    # Download one GeoTIFF product with the Sentinel Hub Process API.
     output_path = Path(output_path)
 
     if output_path.exists() and not overwrite:
@@ -485,7 +493,7 @@ def download_index(
     return str(output_path)
 
 
-# Build a small metadata record for a downloaded scene.
+### Build a metadata record for one downloaded scene.
 def _scene_record(scene, veg_index, vi_path, str_path, boa_path=None, scl_path=None):
     properties = scene.get("properties", {})
     record = {
@@ -501,8 +509,7 @@ def _scene_record(scene, veg_index, vi_path, str_path, boa_path=None, scl_path=N
     return record
 
 
-### OPTRAM acquisition workflow
-
+### Acquire paired vegetation-index and STR rasters for an OPTRAM workflow.
 def acquire_optram_inputs(
     aoi,
     from_date,
@@ -524,7 +531,6 @@ def acquire_optram_inputs(
     download_scl=False,
     scl_keep=None,
 ):
-    # Download paired vegetation-index and STR rasters for OPTRAM inputs.
     if swir_band not in (11, 12):
         raise ValueError("swir_band must be 11 or 12")
 

@@ -1,3 +1,7 @@
+### Yuma OPTRAM Pipeline Example
+# Demonstrates acquisition, VI-STR table assembly, trapezoid fitting, and
+# plotting for a Yuma-area bounding box.
+
 """
 Notebook-style pyOPTRAM test workflow saved as a Python script.
 

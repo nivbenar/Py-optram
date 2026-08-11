@@ -1,3 +1,6 @@
+### Soil-Moisture Compatibility Tests
+# Verifies rOPTRAM coefficient parsing and public soil-moisture defaults.
+
 import inspect
 
 import numpy as np

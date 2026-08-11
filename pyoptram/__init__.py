@@ -1,3 +1,7 @@
+### Public Package API
+# Re-exports the acquisition, transformation, fitting, and soil-moisture
+# functions that form pyOPTRAM's supported interface.
+
 from .acquire import (
     acquire_optram_inputs,
     get_cdse_token,
@@ -10,8 +14,6 @@ from .soil_moisture import calculate_soil_moisture, optram_calculate_soil_moistu
 from .str_transform_calculations import calculate_str, optram_calculate_str
 from .trapezoid import optram_wetdry_coefficients, plot_vi_str_cloud
 from .vegetation_index import calculate_vi
-
-### Public package API
 
 __all__ = [
     "acquire_optram_inputs",

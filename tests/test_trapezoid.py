@@ -1,3 +1,6 @@
+### Trapezoid-Fitting Tests
+# Verifies wet/dry edge fitting and rOPTRAM-compatible coefficient exports.
+
 import numpy as np
 import pandas as pd
 

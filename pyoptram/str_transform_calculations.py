@@ -1,12 +1,14 @@
+### STR Transform Calculations
+# Calculates SWIR Transformed Reflectance (STR) from surface reflectance
+# values and BOA rasters: STR = (1 - SWIR)^2 / (2 * SWIR).
+
 from pathlib import Path
 
 import numpy as np
 import rasterio
 
 
-### STR calculation
-
-# Calculate STR from SWIR reflectance values scaled to 0-1.
+### Calculate STR from SWIR reflectance values scaled to 0-1.
 def calculate_str(swir):
     with np.errstate(divide="ignore", invalid="ignore"):
         return np.where(swir > 0, ((1.0 - swir) ** 2) / (2.0 * swir), np.nan)
@@ -14,7 +16,7 @@ def calculate_str(swir):
 
 ### Raster preparation
 
-# Find BOA files and create the STR output folder.
+### Find BOA files and create the STR output folder.
 def prepare_str_inputs(boa_dir, str_dir=None):
     boa_dir = Path(boa_dir)
 
@@ -32,7 +34,7 @@ def prepare_str_inputs(boa_dir, str_dir=None):
     return boa_list, str_dir
 
 
-# Convert one BOA raster into one STR raster.
+### Convert one BOA raster into one STR raster.
 def process_boa_file(tif_path, str_dir, swir_band):
     with rasterio.open(tif_path) as src:
         if swir_band < 1 or swir_band > src.count:
@@ -54,7 +56,7 @@ def process_boa_file(tif_path, str_dir, swir_band):
     return str(out_path)
 
 
-# Create STR rasters for every BOA raster in a folder.
+### Create STR rasters for every BOA raster in a folder.
 def optram_calculate_str(boa_dir, str_dir=None, swir_band=11):
     prepared = prepare_str_inputs(boa_dir, str_dir)
 

@@ -1,3 +1,7 @@
+### Vegetation-Index Calculations
+# Calculates the NDVI, SAVI, MSAVI, CI, and BSCI indices implemented by
+# pyOPTRAM from band-first raster arrays.
+
 import numpy as np
 
 
@@ -22,8 +26,7 @@ def _scaled_band(img_stack, band_number, scale_factor):
     return 255 * (band - band_minimum) / scale_factor
 
 
-### Vegetation-index calculation
-
+### Calculate a selected vegetation index from scaled raster bands.
 def calculate_vi(img_stack, veg_index="NDVI", redband=4, greenband=3, blueband=2,
                  nirband=5, scale_factor=2**15):
     """Calculate a vegetation index from a band-first raster array.

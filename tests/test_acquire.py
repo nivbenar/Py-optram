@@ -1,3 +1,7 @@
+### CDSE Acquisition Tests
+# Verifies credential handling, evalscript generation, validation, and the
+# Sentinel-2 acquisition workflow without live service calls.
+
 from pathlib import Path
 
 import pytest

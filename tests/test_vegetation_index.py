@@ -1,3 +1,7 @@
+### Vegetation-Index Tests
+# Verifies implemented index equations, band selection, scaling, NaN handling,
+# and input validation.
+
 import numpy as np
 import pytest
 

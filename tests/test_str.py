@@ -1,3 +1,6 @@
+### STR Calculation Tests
+# Verifies the SWIR Transformed Reflectance equation and invalid inputs.
+
 import numpy as np
 
 from pyoptram import calculate_str

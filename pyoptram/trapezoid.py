@@ -1,3 +1,7 @@
+### VI-STR Trapezoid Fitting
+# Extracts wet and dry edge points from a VI-STR pixel cloud, fits linear,
+# polynomial, or exponential edges, and plots the fitted trapezoid.
+
 from pathlib import Path
 
 import numpy as np
@@ -6,7 +10,7 @@ import pandas as pd
 
 ### Edge-point preparation
 
-# Keep finite VI/STR values and optionally remove very low VI values.
+### Keep finite VI/STR values and optionally remove very low VI values.
 def _clean_vi_str(dataframe, vi_col, str_col, rm_low_vi):
     data = dataframe[[vi_col, str_col]].dropna().copy()
     data = data[np.isfinite(data[vi_col]) & np.isfinite(data[str_col])]
@@ -21,7 +25,7 @@ def _clean_vi_str(dataframe, vi_col, str_col, rm_low_vi):
     return data
 
 
-# Remove STR outliers inside one VI interval.
+### Remove STR outliers inside one VI interval.
 def _remove_interval_outliers(group, str_col):
     q1 = group[str_col].quantile(0.25)
     q3 = group[str_col].quantile(0.75)
@@ -31,7 +35,7 @@ def _remove_interval_outliers(group, str_col):
     return group[(group[str_col] > lower) & (group[str_col] < upper)]
 
 
-# Extract wet and dry edge points using rOPTRAM-style VI intervals.
+### Extract wet and dry edge points using rOPTRAM-style VI intervals.
 def _edge_points(
     data,
     vi_col,
@@ -80,7 +84,7 @@ def _edge_points(
 
 ### Edge fitting and export
 
-# Predict STR values for one fitted edge.
+### Predict STR values for one fitted edge.
 def _predict(x, coeffs, method):
     if method == "linear":
         return coeffs["slope"] * x + coeffs["intercept"]
@@ -94,7 +98,7 @@ def _predict(x, coeffs, method):
     raise ValueError(f"Unknown method: {method}")
 
 
-# Fit one wet or dry edge.
+### Fit one wet or dry edge and calculate its RMSE.
 def _fit_edge(x, y, method):
     if method == "linear":
         slope, intercept = np.polyfit(x, y, 1)
@@ -119,6 +123,7 @@ def _fit_edge(x, y, method):
     return coeffs, fit, rmse
 
 
+### Format fitted coefficients using rOPTRAM's one-row CSV schema.
 def _roptram_coefficients(coeffs_df, method):
     """Format fitted coefficients using rOPTRAM's one-row CSV schema."""
     wet = coeffs_df[coeffs_df["edge"] == "wet"].iloc[0]
@@ -155,9 +160,7 @@ def _roptram_coefficients(coeffs_df, method):
     )
 
 
-### Trapezoid workflow
-
-# Derive wet/dry trapezoid coefficients from a VI-STR dataframe.
+### Derive wet and dry trapezoid coefficients from a VI-STR dataframe.
 def optram_wetdry_coefficients(
     full_df,
     output_dir=None,
@@ -221,9 +224,7 @@ def optram_wetdry_coefficients(
     return rmse_df
 
 
-### Plotting
-
-# Plot VI-STR points with fitted wet and dry trapezoid edges.
+### Plot VI-STR points with fitted wet and dry trapezoid edges.
 def plot_vi_str_cloud(
     full_df,
     edges_df,
