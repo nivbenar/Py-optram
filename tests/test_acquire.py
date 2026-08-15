@@ -249,8 +249,8 @@ def test_download_uses_whole_day_and_most_recent(monkeypatch, tmp_path):
     data_filter = requests[0]["input"]["data"][0]["dataFilter"]
     assert data_filter == {
         "timeRange": {
-            "from": "2024-01-02T00:00:00Z",
-            "to": "2024-01-02T23:59:59Z",
+            "from": "2024-01-02T00:00:00.000Z",
+            "to": "2024-01-03T00:00:00.000Z",
         },
         "mosaickingOrder": "mostRecent",
     }

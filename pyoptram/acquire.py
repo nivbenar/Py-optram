@@ -2,7 +2,7 @@
 # Stores CDSE credentials, searches the Sentinel-2 L2A catalog, and downloads
 # vegetation-index, STR, BOA, and optional SCL rasters for OPTRAM workflows.
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import csv
 import json
@@ -839,6 +839,9 @@ def download_index(
     else:
         spatial_output = _dimension_output(width, height)
     scene_day = scene_datetime[:10]
+    next_day = (
+        datetime.strptime(scene_day, "%Y-%m-%d") + timedelta(days=1)
+    ).strftime("%Y-%m-%d")
 
     payload = {
         "input": {
@@ -853,8 +856,8 @@ def download_index(
                     "type": "sentinel-2-l2a",
                     "dataFilter": {
                         "timeRange": {
-                            "from": f"{scene_day}T00:00:00Z",
-                            "to": f"{scene_day}T23:59:59Z",
+                            "from": f"{scene_day}T00:00:00.000Z",
+                            "to": f"{next_day}T00:00:00.000Z",
                         },
                         "mosaickingOrder": "mostRecent",
                     },
