@@ -48,6 +48,9 @@ acquired = acquire_optram_inputs(
     to_date="2024-03-31",
     output_dir="data/optram",
     max_cloud=12,
+    area_cover=99.0,
+    period="full",
+    save_img_list=False,
     only_vi_str=False,
     resolution=10,
     download_scl=True,
@@ -85,6 +88,23 @@ search and download, matching rOPTRAM. Date ranges must satisfy
 10, 20, or 60 metres. Matching rOPTRAM and `CDSE::GetImage()`, metre resolution
 is converted to a CRS84 angular grid at the AOI latitude. Explicit `width` and
 `height` remain available as Python-specific Process API overrides.
+
+Catalog search consumes every CDSE page by default. Following rOPTRAM, scenes
+are filtered client-side in this order: strict cloud cover (`< max_cloud`),
+case-sensitive tile substring in the catalog `sourceId`, spherical AOI coverage
+rounded to three decimals (`>= area_cover`), and then the optional seasonal
+date filter. `period="seasonal"` repeats the month/day window from the supplied
+dates in each covered year and returns scenes in descending acquisition-date
+order. Process requests use each selected acquisition's whole UTC day with
+`mosaickingOrder="mostRecent"`.
+
+When `save_img_list=True`, the post-filter scene list is written before any
+downloads to `image_list.json` as a GeoJSON FeatureCollection. rOPTRAM writes
+the corresponding R object as `image_list.rds`; genuine RDS writing is not
+available from Py-optram's approved runtime dependencies. Spherical coverage
+uses `s2rst` rather than planar Shapely. Tiny differences from R sf/S2 can occur
+at artificial floating-point rounding boundaries; practical parity after
+three-decimal rounding is the supported policy.
 
 ## rOPTRAM-compatible package options
 

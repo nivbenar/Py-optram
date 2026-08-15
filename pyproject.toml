@@ -15,6 +15,7 @@ dependencies = [
     "rasterio",
     "requests",
     "shapely",
+    "s2rst==0.4.0",
 ]
 
 [project.optional-dependencies]

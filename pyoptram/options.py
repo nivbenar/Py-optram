@@ -35,6 +35,7 @@ def _porosity(value):
 
 _OPTION_SCHEMA = {
     "veg_index": ("NDVI", _one_of("NDVI", "SAVI", "MSAVI", "CI", "BSCI")),
+    "period": ("full", _one_of("full", "seasonal")),
     "max_cloud": (12, lambda value: _numeric(value) and 0 <= value <= 100),
     "vi_step": (0.005, lambda value: _numeric(value) and 0 < value <= 0.02),
     "trapezoid_method": (
@@ -68,7 +69,9 @@ _OPTION_SCHEMA = {
     ),
     "scm_mask": (True, _boolean),
     "overwrite": (False, _boolean),
+    "save_img_list": (False, _boolean),
     "resolution": (10, _one_of(10, 20, 60)),
+    "area_cover": (99.0, lambda value: _numeric(value) and 0 <= value <= 100),
     "porosity": (0.4, _porosity),
 }
 

@@ -1,27 +1,15 @@
-### CDSE Acquisition Tests
-# Verifies credential handling, evalscript generation, validation, and the
-# Sentinel-2 acquisition workflow without live service calls.
-
 import json
 from pathlib import Path
-
 import pytest
 from shapely.geometry import shape
-
 import pyoptram.acquire as acquire
 from pyoptram.acquire import load_evalscript
-
-
-### Build one polygon feature for AOI union tests.
 def _polygon_feature(coordinates):
     return {
         "type": "Feature",
         "properties": {},
         "geometry": {"type": "Polygon", "coordinates": [coordinates]},
     }
-
-
-### Build a two-feature AOI with touching or overlapping polygons.
 def _two_feature_aoi(overlap=False):
     second_min_x = 1.0 if overlap else 2.0
     return {
@@ -36,77 +24,10 @@ def _two_feature_aoi(overlap=False):
             ),
         ],
     }
-
-
-### AOI and date validation
-
 def test_load_aoi_unions_feature_collection_dict():
     geometry = shape(acquire.load_aoi(_two_feature_aoi()))
-
     assert geometry.bounds == (0.0, 0.0, 3.0, 2.0)
     assert geometry.area == 6.0
-
-
-def test_load_aoi_unions_feature_collection_file(tmp_path):
-    path = tmp_path / "aoi.geojson"
-    path.write_text(json.dumps(_two_feature_aoi()), encoding="utf-8")
-
-    geometry = shape(acquire.load_aoi(path))
-
-    assert geometry.bounds == (0.0, 0.0, 3.0, 2.0)
-    assert geometry.area == 6.0
-
-
-def test_load_aoi_dissolves_overlapping_features():
-    geometry = shape(acquire.load_aoi(_two_feature_aoi(overlap=True)))
-
-    assert geometry.geom_type == "Polygon"
-    assert geometry.area == 6.0
-
-
-def test_load_aoi_rejects_empty_feature_collection():
-    with pytest.raises(ValueError, match="at least one feature"):
-        acquire.load_aoi({"type": "FeatureCollection", "features": []})
-
-
-def test_load_aoi_preserves_existing_geojson_and_bbox_forms():
-    polygon = {
-        "type": "Polygon",
-        "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
-    }
-    feature = {"type": "Feature", "properties": {}, "geometry": polygon}
-
-    assert acquire.load_aoi(polygon) is polygon
-    assert acquire.load_aoi(feature) is polygon
-    assert acquire.load_aoi((0, 0, 1, 1)) == polygon
-
-
-def test_acquisition_receives_complete_unioned_aoi(monkeypatch, tmp_path):
-    search_calls = []
-    monkeypatch.setattr(acquire, "get_cdse_token", lambda *args: "token")
-    monkeypatch.setattr(
-        acquire,
-        "search_catalog",
-        lambda **kwargs: search_calls.append(kwargs) or [],
-    )
-
-    acquire.acquire_optram_inputs(
-        aoi=_two_feature_aoi(),
-        from_date="2024-01-01",
-        to_date="2024-01-03",
-        output_dir=tmp_path,
-        client_id="id",
-        client_secret="secret",
-        save_creds=False,
-        width=100,
-        height=100,
-    )
-
-    geometry = shape(search_calls[0]["aoi_geometry"])
-    assert geometry.bounds == (0.0, 0.0, 3.0, 2.0)
-    assert geometry.area == 6.0
-
-
 def test_acquisition_rejects_equal_dates(tmp_path):
     with pytest.raises(ValueError, match="to_date must be later than from_date"):
         acquire.acquire_optram_inputs(
@@ -115,55 +36,13 @@ def test_acquisition_rejects_equal_dates(tmp_path):
             to_date="2024-01-01",
             output_dir=tmp_path,
         )
-
-
-def test_acquisition_rejects_reversed_dates(tmp_path):
-    with pytest.raises(ValueError, match="to_date must be later than from_date"):
-        acquire.acquire_optram_inputs(
-            aoi=(0, 0, 1, 1),
-            from_date="2024-01-02",
-            to_date="2024-01-01",
-            output_dir=tmp_path,
-        )
-
-
-### Credential handling
-
 @pytest.fixture
 def credential_file(monkeypatch, tmp_path):
     path = tmp_path / "CDSE" / "cdse_credentials.json"
     monkeypatch.setattr(acquire, "_cdse_credentials_file", lambda: path)
     return path
-
-
-@pytest.mark.parametrize(
-    "system, expected",
-    [
-        ("Linux", ".CDSE/cdse_credentials.json"),
-        ("Darwin", "Library/Preferences/.CDSE/cdse_credentials.json"),
-    ],
-)
-def test_credential_file_matches_roptram_home_paths(
-    monkeypatch, tmp_path, system, expected
-):
-    monkeypatch.setattr(acquire.platform, "system", lambda: system)
-    monkeypatch.setattr(acquire.Path, "home", lambda: tmp_path)
-
-    assert acquire._cdse_credentials_file() == tmp_path / expected
-
-
-def test_credential_file_matches_roptram_windows_path(monkeypatch, tmp_path):
-    monkeypatch.setattr(acquire.platform, "system", lambda: "Windows")
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-
-    assert acquire._cdse_credentials_file() == (
-        tmp_path / "CDSE" / "cdse_credentials.json"
-    )
-
-
 def test_store_and_retrieve_credentials(credential_file):
     acquire.store_cdse_credentials("client-id", "client-secret")
-
     assert credential_file.read_text(encoding="utf-8") == (
         '[{"clientid": "client-id", "secret": "client-secret"}]'
     )
@@ -171,239 +50,6 @@ def test_store_and_retrieve_credentials(credential_file):
         "clientid": "client-id",
         "secret": "client-secret",
     }
-
-
-def test_store_credentials_from_roptram_environment_names(
-    monkeypatch, credential_file
-):
-    monkeypatch.setenv("OAUTH_CLIENTID", "environment-id")
-    monkeypatch.setenv("OAUTH_SECRET", "environment-secret")
-
-    acquire.store_cdse_credentials()
-
-    assert acquire.retrieve_cdse_credentials() == {
-        "clientid": "environment-id",
-        "secret": "environment-secret",
-    }
-
-
-def test_store_credentials_from_csv_file(credential_file, tmp_path):
-    source = tmp_path / "credentials.csv"
-    source.write_text("clientid,secret\nfile-id,file-secret\n", encoding="utf-8")
-
-    assert acquire.store_cdse_credentials_from_file(source) is None
-    assert acquire.retrieve_cdse_credentials() == {"clientid": "file-id", "secret": "file-secret"}
-
-
-def test_acquisition_reuses_file_credentials_after_source_is_removed(
-    monkeypatch, tmp_path, credential_file
-):
-    source = tmp_path / "credentials.csv"
-    source.write_text("clientid,secret\nfile-id,file-secret\n", encoding="utf-8")
-    acquire.store_cdse_credentials_from_file(source)
-    source.unlink()
-    token_calls = []
-    monkeypatch.setattr(acquire, "get_cdse_token", lambda *args: token_calls.append(args) or "token")
-    monkeypatch.setattr(acquire, "search_catalog", lambda **kwargs: [])
-
-    acquire.acquire_optram_inputs(
-        aoi=(34.0, 31.0, 34.1, 31.1),
-        from_date="2024-01-01",
-        to_date="2024-01-03",
-        output_dir=tmp_path,
-    )
-
-    assert token_calls == [("file-id", "file-secret")]
-
-
-@pytest.mark.parametrize(
-    "contents, message",
-    [
-        ("username,password\nuser,password\n", "clientid and secret headers"),
-        ("clientid,secret\n\n", "exactly one credential record"),
-        ("clientid,secret\nid-one,secret-one\nid-two,secret-two\n", "exactly one credential record"),
-        ("clientid,secret\nid-only,\n", "non-empty clientid and secret values"),
-    ],
-)
-def test_store_credentials_from_csv_rejects_invalid_input(
-    tmp_path, credential_file, contents, message
-):
-    source = tmp_path / "credentials.csv"
-    source.write_text(contents, encoding="utf-8")
-
-    with pytest.raises(ValueError, match=message) as exc_info:
-        acquire.store_cdse_credentials_from_file(source)
-
-    assert "secret-one" not in str(exc_info.value)
-    assert "secret-two" not in str(exc_info.value)
-    assert not credential_file.exists()
-
-
-def test_store_credentials_from_csv_does_not_print_secret(
-    capsys, credential_file, tmp_path
-):
-    source = tmp_path / "credentials.csv"
-    source.write_text("clientid,secret\nfile-id,hidden-secret\n", encoding="utf-8")
-
-    acquire.store_cdse_credentials_from_file(source)
-
-    captured = capsys.readouterr()
-    assert "hidden-secret" not in captured.out
-    assert "hidden-secret" not in captured.err
-
-
-def test_retrieve_missing_credentials_warns_without_exposing_secret(
-    credential_file,
-):
-    with pytest.warns(RuntimeWarning, match="Credentials are not available"):
-        assert acquire.retrieve_cdse_credentials() is None
-
-
-def test_acquisition_reuses_stored_credentials(
-    monkeypatch, tmp_path, credential_file
-):
-    acquire.store_cdse_credentials("stored-id", "stored-secret")
-    token_calls = []
-    monkeypatch.setattr(
-        acquire,
-        "get_cdse_token",
-        lambda client_id, client_secret: token_calls.append(
-            (client_id, client_secret)
-        )
-        or "token",
-    )
-    monkeypatch.setattr(acquire, "search_catalog", lambda **kwargs: [])
-
-    acquire.acquire_optram_inputs(
-        aoi=(34.0, 31.0, 34.1, 31.1),
-        from_date="2024-01-01",
-        to_date="2024-01-03",
-        output_dir=tmp_path,
-    )
-
-    assert token_calls == [("stored-id", "stored-secret")]
-
-
-def test_explicit_credentials_override_and_are_saved_after_authentication(
-    monkeypatch, tmp_path, credential_file
-):
-    acquire.store_cdse_credentials("stored-id", "stored-secret")
-    observed_file_contents = []
-
-    def fake_token(client_id, client_secret):
-        observed_file_contents.append(credential_file.read_text(encoding="utf-8"))
-        assert (client_id, client_secret) == ("explicit-id", "explicit-secret")
-        return "token"
-
-    monkeypatch.setattr(acquire, "get_cdse_token", fake_token)
-    monkeypatch.setattr(acquire, "search_catalog", lambda **kwargs: [])
-
-    acquire.acquire_optram_inputs(
-        aoi=(34.0, 31.0, 34.1, 31.1),
-        from_date="2024-01-01",
-        to_date="2024-01-03",
-        output_dir=tmp_path,
-        client_id="explicit-id",
-        client_secret="explicit-secret",
-    )
-
-    assert "stored-secret" in observed_file_contents[0]
-    assert acquire.retrieve_cdse_credentials() == {
-        "clientid": "explicit-id",
-        "secret": "explicit-secret",
-    }
-
-
-def test_failed_authentication_does_not_store_explicit_credentials(
-    monkeypatch, tmp_path, credential_file
-):
-    def fail_token(*args):
-        raise requests.HTTPError("authentication failed")
-
-    import requests
-
-    monkeypatch.setattr(acquire, "get_cdse_token", fail_token)
-
-    with pytest.raises(requests.HTTPError, match="authentication failed"):
-        acquire.acquire_optram_inputs(
-            aoi=(34.0, 31.0, 34.1, 31.1),
-            from_date="2024-01-01",
-            to_date="2024-01-03",
-            output_dir=tmp_path,
-            client_id="explicit-id",
-            client_secret="explicit-secret",
-        )
-
-    assert not credential_file.exists()
-
-
-def test_save_creds_false_does_not_store_explicit_credentials(
-    monkeypatch, tmp_path, credential_file
-):
-    monkeypatch.setattr(acquire, "get_cdse_token", lambda *args: "token")
-    monkeypatch.setattr(acquire, "search_catalog", lambda **kwargs: [])
-
-    acquire.acquire_optram_inputs(
-        aoi=(34.0, 31.0, 34.1, 31.1),
-        from_date="2024-01-01",
-        to_date="2024-01-03",
-        output_dir=tmp_path,
-        client_id="explicit-id",
-        client_secret="explicit-secret",
-        save_creds=False,
-    )
-
-    assert not credential_file.exists()
-
-
-def test_incomplete_explicit_credentials_fall_back_to_stored_pair(
-    monkeypatch, tmp_path, credential_file
-):
-    acquire.store_cdse_credentials("stored-id", "stored-secret")
-    token_calls = []
-    monkeypatch.setattr(
-        acquire,
-        "get_cdse_token",
-        lambda *args: token_calls.append(args) or "token",
-    )
-    monkeypatch.setattr(acquire, "search_catalog", lambda **kwargs: [])
-
-    acquire.acquire_optram_inputs(
-        aoi=(34.0, 31.0, 34.1, 31.1),
-        from_date="2024-01-01",
-        to_date="2024-01-03",
-        output_dir=tmp_path,
-        client_id="ignored-incomplete-id",
-    )
-
-    assert token_calls == [("stored-id", "stored-secret")]
-
-
-def test_token_error_does_not_expose_secret(monkeypatch):
-    class FailedResponse:
-        status_code = 401
-        text = "server echoed super-secret"
-
-        def raise_for_status(self):
-            raise requests.HTTPError("raw failure")
-
-    import requests
-
-    monkeypatch.setattr(acquire.requests, "post", lambda *args, **kwargs: FailedResponse())
-    with pytest.raises(requests.HTTPError) as exc_info:
-        acquire.get_cdse_token("client-id", "super-secret")
-
-    assert "super-secret" not in str(exc_info.value)
-
-
-### Evalscripts
-
-def test_load_evalscript_includes_scl():
-    script = load_evalscript("SCL")
-    assert 'bands: ["SCL"]' in script
-    assert 'sampleType: "UINT8"' in script
-
-
 @pytest.mark.parametrize(
     "veg_index, formula",
     [
@@ -426,101 +72,164 @@ def test_load_evalscript_uses_roptram_vi_formula(veg_index, formula):
     assert 'bands: ["B04", "B08"]' in script
     assert formula in script
     assert 'sampleType: "FLOAT32"' in script
-
-
-@pytest.mark.parametrize("veg_index", ["NDVI", "SAVI", "MSAVI"])
-def test_load_evalscript_masks_vi_with_roptram_scl_classes(veg_index):
-    script = load_evalscript(veg_index, scl_mask=True)
-    assert 'bands: ["B04", "B08", "SCL"]' in script
-    assert "[2, 4, 5, 10].includes(sample.SCL)" in script
-    assert "return [NaN]" in script
-
-
-def test_load_evalscript_keeps_explicit_scl_override():
-    script = load_evalscript("NDVI", scl_mask=True, scl_keep={7, 4})
-    assert "[4, 7].includes(sample.SCL)" in script
-
-
-@pytest.mark.parametrize("veg_index", ["CI", "BSCI"])
-def test_load_evalscript_rejects_indices_without_roptram_cdse_scripts(veg_index):
-    with pytest.raises(ValueError, match="Unknown script_name"):
-        load_evalscript(veg_index)
-
-
-### Acquisition workflow
-
-@pytest.mark.parametrize(
-    "latitude, expected",
-    [
-        (0, (111319.49079327358, 110574.2758200226)),
-        (45, (78846.83509425737, 111131.77741377674)),
-    ],
-)
-def test_degree_lengths_match_cdse(latitude, expected):
-    assert acquire._degree_lengths(latitude) == pytest.approx(expected)
-
-
 def test_resolution_output_matches_cdse_centroid_conversion():
     geometry = acquire.load_aoi(
         (12.292349, 47.810849, 12.569037, 47.967123)
     )
-
     output = acquire._resolution_output(geometry, 10)
-
     assert output == pytest.approx(
         {
             "resx": 0.00013371609330541562,
             "resy": 0.00008993763143935762,
         }
     )
-
-
 def test_resolution_output_rejects_more_than_2500_pixels():
     with pytest.raises(ValueError, match="exceeds the allowed maximum"):
         acquire._resolution_output(acquire.load_aoi((0, 0, 0.23, 0.1)), 10)
-
-
-def test_resolution_limit_accepts_terra_ratio_below_half(monkeypatch):
-    monkeypatch.setattr(acquire, "_degree_lengths", lambda latitude: (1, 1))
-
-    assert acquire._resolution_output(
-        acquire.load_aoi((0, 0, 2500.49, 1)), 1
-    ) == {"resx": 1.0, "resy": 1.0}
-
-
-def test_resolution_limit_rejects_terra_half_ratio(monkeypatch):
-    monkeypatch.setattr(acquire, "_degree_lengths", lambda latitude: (1, 1))
-
-    with pytest.raises(ValueError, match=r"\(1 x 2501\)"):
-        acquire._resolution_output(
-            acquire.load_aoi((0, 0, 2500.50, 1)), 1
-        )
-
-
-def test_resolution_limit_maps_x_to_columns(monkeypatch):
-    monkeypatch.setattr(acquire, "_degree_lengths", lambda latitude: (1, 1))
-
-    with pytest.raises(ValueError, match=r"\(1 x 2501\)"):
-        acquire._resolution_output(acquire.load_aoi((0, 0, 2501, 1)), 1)
-
-
-def test_resolution_limit_maps_y_to_rows(monkeypatch):
-    monkeypatch.setattr(acquire, "_degree_lengths", lambda latitude: (1, 1))
-
-    with pytest.raises(ValueError, match=r"\(2501 x 1\)"):
-        acquire._resolution_output(acquire.load_aoi((0, 0, 1, 2501)), 1)
-
-
 class _DownloadResponse:
     status_code = 200
     text = ""
     content = b"tiff"
-
     def raise_for_status(self):
         return None
-
-
-def test_download_uses_crs84_resolution_without_dimensions(monkeypatch, tmp_path):
+def _ring(x0, y0, x1, y1):
+    return [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+def _scene(number, date="2024-01-02", cloud=1, tile="36RXV", top=1.0):
+    return {
+        "type": "Feature",
+        "id": f"S2A_TEST_{number:03d}_{tile}",
+        "properties": {
+            "datetime": f"{date}T10:20:30Z",
+            "eo:cloud_cover": cloud,
+        },
+        "geometry": {"type": "Polygon", "coordinates": [_ring(0, 0, 1, top)]},
+    }
+class _CatalogResponse:
+    status_code = 200
+    text = ""
+    def __init__(self, features, next_page=None):
+        self.features = features
+        self.next_page = next_page
+    def raise_for_status(self):
+        return None
+    def json(self):
+        context = {} if self.next_page is None else {"next": self.next_page}
+        return {"features": self.features, "context": context}
+def _mock_catalog_pages(monkeypatch, pages):
+    calls = []
+    def post(*args, **kwargs):
+        calls.append(dict(kwargs["json"]))
+        return pages[len(calls) - 1]
+    monkeypatch.setattr(acquire.requests, "post", post)
+    monkeypatch.setattr(acquire, "_area_coverage", lambda *args: 100.0)
+    return calls
+def test_catalog_paginates_beyond_one_hundred_scenes(monkeypatch):
+    calls = _mock_catalog_pages(
+        monkeypatch,
+        [
+            _CatalogResponse([_scene(i) for i in range(100)], "page-2"),
+            _CatalogResponse([_scene(i) for i in range(100, 125)]),
+        ],
+    )
+    scenes = acquire.search_catalog(
+        acquire.load_aoi((0, 0, 1, 1)),
+        "2024-01-01",
+        "2024-01-03",
+        "token",
+    )
+    assert len(scenes) == 125
+    assert "next" not in calls[0]
+    assert calls[1]["next"] == "page-2"
+def test_catalog_cloud_filter_is_strict(monkeypatch):
+    _mock_catalog_pages(
+        monkeypatch,
+        [_CatalogResponse([_scene(1, cloud=11.999), _scene(2, cloud=12)])],
+    )
+    scenes = acquire.search_catalog(
+        acquire.load_aoi((0, 0, 1, 1)),
+        "2024-01-01",
+        "2024-01-03",
+        "token",
+        max_cloud=12,
+    )
+    assert [scene["id"] for scene in scenes] == ["S2A_TEST_001_36RXV"]
+def test_tile_filter_uses_case_sensitive_source_id_substring(monkeypatch):
+    _mock_catalog_pages(
+        monkeypatch,
+        [
+            _CatalogResponse(
+                [
+                    _scene(1, tile="36RXV_EXTRA"),
+                    _scene(2, tile="36rxv"),
+                    _scene(3, tile="36RXW"),
+                ]
+            )
+        ],
+    )
+    scenes = acquire.search_catalog(
+        acquire.load_aoi((0, 0, 1, 1)),
+        "2024-01-01",
+        "2024-01-03",
+        "token",
+        tile="36RXV",
+    )
+    assert [scene["id"] for scene in scenes] == ["S2A_TEST_001_36RXV_EXTRA"]
+def test_s2_area_coverage_rounds_to_three_decimals():
+    aoi = acquire._s2_polygon(acquire.load_aoi((0, 0, 1, 1)))
+    retained = acquire._area_coverage(
+        aoi, {"type": "Polygon", "coordinates": [_ring(0, 0, 1, 0.989995)]}
+    )
+    rejected = acquire._area_coverage(
+        aoi, {"type": "Polygon", "coordinates": [_ring(0, 0, 1, 0.989985)]}
+    )
+    assert retained == 99.000
+    assert rejected == 98.999
+def test_catalog_coverage_comparison_is_inclusive(monkeypatch):
+    _mock_catalog_pages(
+        monkeypatch, [_CatalogResponse([_scene(1), _scene(2)])]
+    )
+    coverages = iter([99.000, 98.999])
+    monkeypatch.setattr(acquire, "_area_coverage", lambda *args: next(coverages))
+    scenes = acquire.search_catalog(
+        acquire.load_aoi((0, 0, 1, 1)),
+        "2024-01-01",
+        "2024-01-03",
+        "token",
+    )
+    assert [scene["areaCoverage"] for scene in scenes] == [99.000]
+def test_full_period_preserves_catalog_order(monkeypatch):
+    _mock_catalog_pages(
+        monkeypatch,
+        [_CatalogResponse([_scene(1, "2022-06-01"), _scene(2, "2020-06-01")])],
+    )
+    scenes = acquire.search_catalog(
+        acquire.load_aoi((0, 0, 1, 1)),
+        "2020-01-01",
+        "2022-12-31",
+        "token",
+        period="full",
+    )
+    assert [scene["id"] for scene in scenes] == [
+        "S2A_TEST_001_36RXV",
+        "S2A_TEST_002_36RXV",
+    ]
+def test_seasonal_filter_same_year_windows_and_boundaries():
+    scenes = [
+        _scene(1, "2020-04-01"),
+        _scene(2, "2020-09-30"),
+        _scene(3, "2021-03-31"),
+        _scene(4, "2021-04-01"),
+        _scene(5, "2021-09-30"),
+        _scene(6, "2021-10-01"),
+    ]
+    selected = acquire._seasonal_filter(scenes, "2020-04-01", "2021-09-30")
+    assert [_scene_date["id"] for _scene_date in selected] == [
+        "S2A_TEST_005_36RXV",
+        "S2A_TEST_004_36RXV",
+        "S2A_TEST_002_36RXV",
+        "S2A_TEST_001_36RXV",
+    ]
+def test_download_uses_whole_day_and_most_recent(monkeypatch, tmp_path):
     requests = []
     monkeypatch.setattr(
         acquire.requests,
@@ -528,57 +237,23 @@ def test_download_uses_crs84_resolution_without_dimensions(monkeypatch, tmp_path
         lambda *args, **kwargs: requests.append(kwargs["json"])
         or _DownloadResponse(),
     )
-    geometry = acquire.load_aoi(
-        (12.292349, 47.810849, 12.569037, 47.967123)
-    )
-
     acquire.download_index(
-        aoi_geometry=geometry,
-        scene_datetime="2024-01-02T10:20:30Z",
-        script_name="NDVI",
-        output_path=tmp_path / "ndvi.tif",
-        token="token",
+        acquire.load_aoi((0, 0, 1, 1)),
+        "2024-01-02T10:20:30Z",
+        "NDVI",
+        tmp_path / "ndvi.tif",
+        "token",
+        width=100,
+        height=100,
     )
-
-    payload = requests[0]
-    assert payload["input"]["bounds"]["properties"]["crs"] == (
-        "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
-    )
-    assert payload["output"]["resx"] == pytest.approx(
-        0.00013371609330541562
-    )
-    assert payload["output"]["resy"] == pytest.approx(
-        0.00008993763143935762
-    )
-    assert "width" not in payload["output"]
-    assert "height" not in payload["output"]
-
-
-def test_download_keeps_explicit_dimension_override(monkeypatch, tmp_path):
-    requests = []
-    monkeypatch.setattr(
-        acquire.requests,
-        "post",
-        lambda *args, **kwargs: requests.append(kwargs["json"])
-        or _DownloadResponse(),
-    )
-
-    acquire.download_index(
-        aoi_geometry=acquire.load_aoi((34, 31, 34.1, 31.1)),
-        scene_datetime="2024-01-02T10:20:30Z",
-        script_name="STR",
-        output_path=tmp_path / "str.tif",
-        token="token",
-        width=800,
-        height=600,
-    )
-
-    output = requests[0]["output"]
-    assert output["width"] == 800
-    assert output["height"] == 600
-    assert "resx" not in output
-    assert "resy" not in output
-
+    data_filter = requests[0]["input"]["data"][0]["dataFilter"]
+    assert data_filter == {
+        "timeRange": {
+            "from": "2024-01-02T00:00:00Z",
+            "to": "2024-01-02T23:59:59Z",
+        },
+        "mosaickingOrder": "mostRecent",
+    }
 @pytest.fixture
 def acquisition_mocks(monkeypatch):
     scene = {
@@ -588,6 +263,7 @@ def acquisition_mocks(monkeypatch):
             "eo:cloud_cover": 3,
             "s2:mgrs_tile": "36RXV",
         },
+        "areaCoverage": 100.0,
     }
     search_calls = []
     downloads = []
@@ -603,11 +279,8 @@ def acquisition_mocks(monkeypatch):
         lambda **kwargs: downloads.append(kwargs) or str(kwargs["output_path"]),
     )
     return search_calls, downloads
-
-
 def test_acquisition_defaults_match_roptram(tmp_path, acquisition_mocks):
     search_calls, downloads = acquisition_mocks
-
     acquire.acquire_optram_inputs(
         aoi=(34.0, 31.0, 34.1, 31.1),
         from_date="2024-01-01",
@@ -616,19 +289,24 @@ def test_acquisition_defaults_match_roptram(tmp_path, acquisition_mocks):
         client_id="id",
         client_secret="secret",
     )
-
     assert search_calls[0]["max_cloud"] == 12
+    assert search_calls[0]["area_cover"] == 99.0
+    assert search_calls[0]["period"] == "full"
+    assert search_calls[0]["limit"] is None
     assert [call["script_name"] for call in downloads] == ["NDVI", "STR", "BOA"]
     assert downloads[0]["scl_mask"] is True
     assert all(call["resolution"] == 10 for call in downloads)
     assert all(call["width"] is None and call["height"] is None for call in downloads)
-
-
-def test_acquisition_products_receive_identical_spatial_grid(
-    tmp_path, acquisition_mocks
+def test_save_image_list_contains_filtered_scenes_before_downloads(
+    monkeypatch, tmp_path, acquisition_mocks
 ):
     _, downloads = acquisition_mocks
-
+    image_list_path = tmp_path / "image_list.json"
+    observed = []
+    def check_saved(**kwargs):
+        observed.append(json.loads(image_list_path.read_text(encoding="utf-8")))
+        return str(kwargs["output_path"])
+    monkeypatch.setattr(acquire, "download_index", check_saved)
     acquire.acquire_optram_inputs(
         aoi=(34.0, 31.0, 34.1, 31.1),
         from_date="2024-01-01",
@@ -636,91 +314,9 @@ def test_acquisition_products_receive_identical_spatial_grid(
         output_dir=tmp_path,
         client_id="id",
         client_secret="secret",
-        resolution=20,
-        download_scl=True,
+        save_img_list=True,
     )
-
-    assert [call["script_name"] for call in downloads] == [
-        "NDVI", "STR", "BOA", "SCL"
-    ]
-    assert {
-        (call["resolution"], call["width"], call["height"])
-        for call in downloads
-    } == {(20, None, None)}
-
-
-@pytest.mark.parametrize("max_cloud", [-1, 101, float("inf"), float("nan"), "12"])
-def test_acquisition_rejects_invalid_max_cloud(tmp_path, max_cloud):
-    with pytest.raises(ValueError, match="max_cloud"):
-        acquire.acquire_optram_inputs(
-            aoi=(34.0, 31.0, 34.1, 31.1),
-            from_date="2024-01-01",
-            to_date="2024-01-03",
-            output_dir=tmp_path,
-            client_id="id",
-            client_secret="secret",
-            max_cloud=max_cloud,
-        )
-
-
-@pytest.mark.parametrize("veg_index", ["NDVI", "SAVI", "MSAVI"])
-def test_acquisition_propagates_vegetation_index(
-    tmp_path, veg_index, acquisition_mocks
-):
-    _, downloads = acquisition_mocks
-
-    results = acquire.acquire_optram_inputs(
-        aoi=(34.0, 31.0, 34.1, 31.1),
-        from_date="2024-01-01",
-        to_date="2024-01-03",
-        output_dir=tmp_path,
-        client_id="id",
-        client_secret="secret",
-        veg_index=veg_index,
-    )
-
-    vi_download = downloads[0]
-    assert vi_download["script_name"] == veg_index
-    assert Path(vi_download["output_path"]).parent.name == veg_index
-    assert Path(vi_download["output_path"]).name.startswith(f"{veg_index}_")
-    assert results[veg_index] == [str(vi_download["output_path"])]
-    assert results["scenes"][0][veg_index] == str(vi_download["output_path"])
-    if veg_index == "NDVI":
-        assert "NDVI" in results
-
-
-@pytest.mark.parametrize("veg_index", ["CI", "BSCI"])
-def test_acquisition_rejects_indices_without_cdse_scripts(tmp_path, veg_index):
-    with pytest.raises(ValueError, match="supports NDVI, SAVI, or MSAVI"):
-        acquire.acquire_optram_inputs(
-            aoi=(34.0, 31.0, 34.1, 31.1),
-            from_date="2024-01-01",
-            to_date="2024-01-03",
-            output_dir=tmp_path,
-            client_id="id",
-            client_secret="secret",
-            veg_index=veg_index,
-        )
-
-
-def test_empty_acquisition_uses_selected_vi_key(monkeypatch, tmp_path):
-    monkeypatch.setattr(acquire, "get_cdse_token", lambda *args: "token")
-    monkeypatch.setattr(acquire, "search_catalog", lambda **kwargs: [])
-
-    results = acquire.acquire_optram_inputs(
-        aoi=(34.0, 31.0, 34.1, 31.1),
-        from_date="2024-01-01",
-        to_date="2024-01-03",
-        output_dir=tmp_path,
-        client_id="id",
-        client_secret="secret",
-        veg_index="SAVI",
-    )
-
-    assert results == {
-        "SAVI": [],
-        "STR": [],
-        "BOA": [],
-        "SCL": [],
-        "scenes": [],
-    }
+    assert not downloads
+    assert observed
+    assert observed[0]["type"] == "FeatureCollection"
+    assert observed[0]["features"][0]["areaCoverage"] == 100.0

@@ -12,6 +12,7 @@ import platform
 import warnings
 
 import requests
+import s2rst
 from shapely.geometry import mapping, shape
 from shapely.ops import unary_union
 
@@ -565,8 +566,88 @@ def _filter_scenes_by_tile(scenes, tile):
     if tile is None:
         return scenes
 
-    wanted = str(tile).upper().removeprefix("T")
-    return [scene for scene in scenes if _scene_tile(scene) == wanted]
+    return [scene for scene in scenes if tile in scene.get("id", "")]
+
+
+### Convert one GeoJSON ring to a normalized S2 loop.
+def _s2_loop(coordinates):
+    if coordinates and coordinates[0] == coordinates[-1]:
+        coordinates = coordinates[:-1]
+    loop = s2rst.Loop(
+        [
+            s2rst.LatLng.from_degrees(latitude, longitude).to_point()
+            for longitude, latitude in coordinates
+        ]
+    )
+    loop.normalize()
+    return loop
+
+
+### Convert a GeoJSON Polygon or MultiPolygon to an S2 polygon.
+def _s2_polygon(geometry):
+    geometry_type = geometry.get("type")
+    coordinates = geometry.get("coordinates", [])
+    if geometry_type == "Polygon":
+        polygons = [coordinates]
+    elif geometry_type == "MultiPolygon":
+        polygons = coordinates
+    else:
+        raise ValueError("areaCoverage requires a Polygon or MultiPolygon")
+
+    loops = [_s2_loop(ring) for polygon in polygons for ring in polygon]
+    polygon = s2rst.Polygon(loops)
+    if error := polygon.validate():
+        raise ValueError(f"Invalid S2 polygon: {error}")
+    return polygon
+
+
+### Calculate rOPTRAM-style spherical AOI coverage, rounded to three decimals.
+def _area_coverage(aoi_polygon, scene_geometry):
+    scene_polygon = _s2_polygon(scene_geometry)
+    aoi_index = s2rst.ShapeIndex()
+    aoi_index.add(aoi_polygon)
+    aoi_index.build()
+    scene_index = s2rst.ShapeIndex()
+    scene_index.add(scene_polygon)
+    scene_index.build()
+    intersection = s2rst.boolean_operation(
+        s2rst.OpType.INTERSECTION, aoi_index, scene_index
+    )
+    return round(100 * intersection.area() / aoi_polygon.area(), 3)
+
+
+### Return a catalog scene's UTC acquisition date.
+def _scene_date(scene):
+    timestamp = scene.get("properties", {}).get("datetime", "")
+    return datetime.strptime(timestamp[:10], "%Y-%m-%d").date()
+
+
+### Reproduce CDSE::SeasonalTimerange and SeasonalFilter.
+def _seasonal_filter(scenes, from_date, to_date):
+    start = datetime.strptime(from_date, "%Y-%m-%d").date()
+    end = datetime.strptime(to_date, "%Y-%m-%d").date()
+    same_year_end = start.replace(month=end.month, day=end.day)
+    crosses_year = same_year_end < start
+    last_year = end.year - 1 if crosses_year else end.year
+    ranges = []
+    for year in range(start.year, last_year + 1):
+        season_start = start.replace(year=year)
+        season_end = end.replace(year=year + int(crosses_year))
+        ranges.append((season_start, season_end))
+
+    selected = [
+        scene
+        for scene in scenes
+        if any(first <= _scene_date(scene) <= last for first, last in ranges)
+    ]
+    return [
+        scene
+        for _, scene in sorted(
+            enumerate(selected),
+            key=lambda item: (_scene_date(item[1]), item[0]),
+            reverse=True,
+        )
+    ]
 
 
 ### Search the Sentinel-2 L2A catalog for matching scenes.
@@ -576,10 +657,12 @@ def search_catalog(
     to_date,
     token,
     max_cloud=_UNSET,
-    limit=20,
-    tile=None,
+    limit=None,
+    tile=_UNSET,
+    area_cover=_UNSET,
+    period=_UNSET,
 ):
-    """Search the Sentinel-2 L2A catalog and apply cloud/tile limits.
+    """Search and filter the Sentinel-2 L2A catalog like rOPTRAM/CDSE.
 
     Parameters
     ----------
@@ -593,10 +676,15 @@ def search_catalog(
     max_cloud : float, optional
         Strict upper cloud-cover bound. Defaults to the rOPTRAM-compatible
         ``max_cloud`` option, initially 12.
-    limit : int, default 20
-        Maximum number of returned scenes.
-    tile : str or None, default None
+    limit : int or None, default None
+        Optional Python compatibility cap applied after parity filtering.
+    tile : str or None, optional
         Optional five-character MGRS tile identifier.
+    area_cover : float, optional
+        Minimum spherical AOI coverage after three-decimal rounding. Defaults
+        to 99.0.
+    period : {"full", "seasonal"}, optional
+        Full date range or rOPTRAM seasonal filtering. Defaults to ``"full"``.
 
     Returns
     -------
@@ -615,21 +703,57 @@ def search_catalog(
         max_cloud,
         "max_cloud must be numeric and between 0 and 100",
     )
+    tile = _resolve_optram_option(
+        "tileid", tile, "tile must be None or a five-character MGRS tile ID"
+    )
+    area_cover = _resolve_optram_option(
+        "area_cover",
+        area_cover,
+        "area_cover must be numeric and between 0 and 100",
+    )
+    period = _resolve_optram_option(
+        "period", period, "period must be 'full' or 'seasonal'"
+    )
     headers = {"Authorization": f"Bearer {token}"}
-    request_limit = max(limit, 100) if tile is not None else limit
 
     payload = {
         "intersects": aoi_geometry,
         "datetime": f"{from_date}T00:00:00Z/{to_date}T23:59:59Z",
         "collections": ["sentinel-2-l2a"],
-        "limit": request_limit,
-        "filter": f"eo:cloud_cover < {max_cloud}",
+        "limit": 100,
     }
 
-    response = requests.post(CATALOG_URL, headers=headers, json=payload, timeout=60)
-    _raise_for_status(response, "Sentinel-2 catalog search")
-    scenes = response.json().get("features", [])
-    return _filter_scenes_by_tile(scenes, tile)[:limit]
+    scenes = []
+    while True:
+        response = requests.post(
+            CATALOG_URL, headers=headers, json=payload, timeout=60
+        )
+        _raise_for_status(response, "Sentinel-2 catalog search")
+        page = response.json()
+        scenes.extend(page.get("features", []))
+        next_page = page.get("context", {}).get("next")
+        if next_page is None:
+            break
+        payload["next"] = next_page
+
+    scenes = [
+        scene
+        for scene in scenes
+        if scene.get("properties", {}).get("eo:cloud_cover", math.inf) < max_cloud
+    ]
+    scenes = _filter_scenes_by_tile(scenes, tile)
+    aoi_polygon = _s2_polygon(aoi_geometry)
+    covered = []
+    for scene in scenes:
+        coverage = _area_coverage(aoi_polygon, scene["geometry"])
+        scene = dict(scene)
+        scene["areaCoverage"] = coverage
+        if coverage >= area_cover:
+            covered.append(scene)
+    scenes = covered
+    if period == "seasonal":
+        scenes = _seasonal_filter(scenes, from_date, to_date)
+    return scenes if limit is None else scenes[:limit]
 
 
 ### Download one GeoTIFF product through the Sentinel Hub Process API.
@@ -654,7 +778,8 @@ def download_index(
     aoi_geometry : dict
         GeoJSON acquisition geometry.
     scene_datetime : str
-        Exact catalog scene timestamp used for the Process API time range.
+        Catalog scene timestamp whose whole UTC day is used for the Process
+        API time range, matching rOPTRAM's ``as.Date`` behavior.
     script_name : {"NDVI", "SAVI", "MSAVI", "STR", "BOA", "SCL"}
         Product evalscript to run.
     output_path : path-like
@@ -713,6 +838,7 @@ def download_index(
         spatial_output = _resolution_output(aoi_geometry, resolution)
     else:
         spatial_output = _dimension_output(width, height)
+    scene_day = scene_datetime[:10]
 
     payload = {
         "input": {
@@ -727,9 +853,10 @@ def download_index(
                     "type": "sentinel-2-l2a",
                     "dataFilter": {
                         "timeRange": {
-                            "from": scene_datetime,
-                            "to": scene_datetime,
-                        }
+                            "from": f"{scene_day}T00:00:00Z",
+                            "to": f"{scene_day}T23:59:59Z",
+                        },
+                        "mosaickingOrder": "mostRecent",
                     },
                 }
             ],
@@ -760,6 +887,7 @@ def _scene_record(scene, veg_index, vi_path, str_path, boa_path=None, scl_path=N
         "id": scene.get("id"),
         "datetime": properties.get("datetime"),
         "cloud_cover": properties.get("eo:cloud_cover"),
+        "areaCoverage": scene.get("areaCoverage"),
         "tile": _scene_tile(scene),
         "STR": str_path,
         "BOA": boa_path,
@@ -783,7 +911,7 @@ def acquire_optram_inputs(
     max_cloud=_UNSET,
     only_vi_str=_UNSET,
     tile=_UNSET,
-    limit=20,
+    limit=None,
     resolution=_UNSET,
     width=None,
     height=None,
@@ -791,6 +919,9 @@ def acquire_optram_inputs(
     scl_mask=_UNSET,
     download_scl=False,
     scl_keep=None,
+    area_cover=_UNSET,
+    period=_UNSET,
+    save_img_list=_UNSET,
 ):
     """Acquire Sentinel-2 VI and STR inputs from Copernicus Data Space.
 
@@ -821,8 +952,9 @@ def acquire_optram_inputs(
         Skip BOA downloads when true. Defaults to false.
     tile : str or None, optional
         Five-character MGRS tile; defaults to the ``tileid`` option.
-    limit : int, default 20
-        Maximum catalog scenes to process.
+    limit : int or None, default None
+        Optional Python compatibility cap. By default all catalog pages are
+        consumed and no scene-count cap is applied.
     resolution : {10, 20, 60}, optional
         Output resolution in metres; defaults to the current ``resolution``
         option, initially 10. As in rOPTRAM/CDSE, metres are converted to a
@@ -838,6 +970,14 @@ def acquire_optram_inputs(
         Also download raw SCL rasters.
     scl_keep : iterable of int, optional
         Classes retained by the VI mask; defaults to 2, 4, 5, and 10.
+    area_cover : float, optional
+        Minimum spherical AOI coverage, rounded to three decimals before an
+        inclusive comparison. Defaults to 99.0.
+    period : {"full", "seasonal"}, optional
+        Use the full date range or rOPTRAM's repeating seasonal windows.
+        Defaults to ``"full"``.
+    save_img_list : bool, optional
+        Save the post-filter catalog before downloads. Defaults to false.
 
     Returns
     -------
@@ -856,9 +996,11 @@ def acquire_optram_inputs(
 
     Notes
     -----
-    This implements rOPTRAM's CDSE/Sentinel Hub path only. Its openEO,
-    seasonal, area-coverage, and saved-catalog workflows are not implemented
-    here.
+    This implements rOPTRAM's CDSE/Sentinel Hub path only. Its openEO workflow
+    is not implemented here. Spherical area coverage uses the
+    S2-style ``s2rst`` implementation. It can differ from R sf/S2 at artificial
+    floating-point rounding boundaries by tiny amounts; three-decimal
+    practical parity is the supported policy.
     """
     veg_index = _resolve_optram_option(
         "veg_index",
@@ -878,6 +1020,17 @@ def acquire_optram_inputs(
     )
     tile = _resolve_optram_option(
         "tileid", tile, "tile must be None or a five-character MGRS tile ID"
+    )
+    area_cover = _resolve_optram_option(
+        "area_cover",
+        area_cover,
+        "area_cover must be numeric and between 0 and 100",
+    )
+    period = _resolve_optram_option(
+        "period", period, "period must be 'full' or 'seasonal'"
+    )
+    save_img_list = _resolve_optram_option(
+        "save_img_list", save_img_list, "save_img_list must be a boolean"
     )
     overwrite = _resolve_optram_option(
         "overwrite", overwrite, "overwrite must be a boolean"
@@ -931,12 +1084,20 @@ def acquire_optram_inputs(
         to_date=to_date,
         token=token,
         max_cloud=max_cloud,
-        limit=limit,
         tile=tile,
+        area_cover=area_cover,
+        period=period,
+        limit=limit,
     )
 
     if not scenes:
         return {veg_index: [], "STR": [], "BOA": [], "SCL": [], "scenes": []}
+
+    if save_img_list:
+        image_list = {"type": "FeatureCollection", "features": scenes}
+        (Path(output_dir) / "image_list.json").write_text(
+            json.dumps(image_list, indent=2), encoding="utf-8"
+        )
 
     results = {veg_index: [], "STR": [], "BOA": [], "SCL": [], "scenes": []}
 
