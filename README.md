@@ -26,6 +26,7 @@ pip install -e .[geo]
 ```python
 from pyoptram import (
     acquire_optram_inputs,
+    optram,
     optram_calculate_soil_moisture,
     optram_ndvi_str,
     optram_wetdry_coefficients,
@@ -41,6 +42,20 @@ store_cdse_credentials(
 
 # Or initialize from a CSV with clientid,secret headers:
 # store_cdse_credentials_from_file("path/to/cdse_credentials.csv")
+
+# Thin counterpart to rOPTRAM::optram() for the supported CDSE path.
+rmse = optram(
+    aoi="path/to/aoi.geojson",
+    from_date="2024-01-01",
+    to_date="2024-03-31",
+    s2_output_dir="data/optram",
+    data_output_dir="data/optram/results",
+)
+
+# optram() acquires VI/STR imagery, creates the VI-STR table, fits wet/dry
+# edges, and prints and returns RMSE. Matching rOPTRAM::optram(), it does not
+# calculate soil moisture. The current wrapper supports CDSE; openEO backend
+# parity remains future work.
 
 acquired = acquire_optram_inputs(
     aoi="path/to/aoi.geojson",  # GeoJSON, vector file, dict, or bbox tuple
@@ -190,6 +205,7 @@ scaling, and exponential coefficient interpretation are not reproduced.
 
 - `get_cdse_token`
 - `acquire_optram_inputs`
+- `optram`
 - `calculate_vi`
 - `calculate_str`
 - `optram_calculate_str`

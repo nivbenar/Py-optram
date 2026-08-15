@@ -10,6 +10,7 @@ from .acquire import (
     store_cdse_credentials_from_file,
 )
 from .ndvi_str import optram_ndvi_str
+from .optram import optram
 from .options import optram_options
 from .soil_moisture import calculate_soil_moisture, optram_calculate_soil_moisture
 from .str_transform_calculations import calculate_str, optram_calculate_str
@@ -23,6 +24,7 @@ __all__ = [
     "store_cdse_credentials",
     "store_cdse_credentials_from_file",
     "optram_ndvi_str",
+    "optram",
     "optram_options",
     "calculate_soil_moisture",
     "optram_calculate_soil_moisture",
