@@ -63,21 +63,6 @@ def test_optram_ndvi_str_builds_dataframe_and_filters_zero_str(tmp_path):
     ]
     np.testing.assert_allclose(dataframe["NDVI"].to_numpy(), [0.2, 0.6, 0.8])
     np.testing.assert_allclose(dataframe["STR"].to_numpy(), [1.0, 2.0, 3.0])
-def test_optram_ndvi_str_scl_mask_filters_clouds(tmp_path):
-    ndvi_path = tmp_path / "NDVI_test.tif"
-    str_path = tmp_path / "STR_test.tif"
-    scl_path = tmp_path / "SCL_test.tif"
-    ndvi = np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32)
-    str_array = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
-    scl = np.array([[4, 3], [6, 9]], dtype=np.uint8)  # keep=4, cloud=3, keep=6, unused=9
-    _write_single_band_tif(ndvi_path, ndvi)
-    _write_single_band_tif(str_path, str_array)
-    _write_single_band_tif(scl_path, scl, dtype="uint8")
-    dataframe = optram_ndvi_str([ndvi_path], [str_path], scl_paths=[scl_path])
-    assert "SCL" in dataframe.columns
-    assert len(dataframe) == 2
-    np.testing.assert_allclose(sorted(dataframe["NDVI"].to_numpy()), [0.2, 0.6])
-    np.testing.assert_array_equal(sorted(dataframe["SCL"].to_numpy()), [4, 6])
 def test_optram_ndvi_str_features_label_without_filtering_pixels(tmp_path):
     ndvi = np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32)
     str_array = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)

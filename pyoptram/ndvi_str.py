@@ -29,10 +29,6 @@ _BASE_COLUMNS = [
     "str_path",
 ]
 
-# rOPTRAM default: keep vegetation, bare soils, water, and unclassified pixels.
-DEFAULT_SCL_KEEP = frozenset({4, 5, 6, 7})
-
-
 ### Normalize one path or an iterable of paths to a non-empty list.
 def _as_path_list(paths, name):
     if isinstance(paths, (str, Path)):
@@ -43,14 +39,6 @@ def _as_path_list(paths, name):
         raise ValueError(f"{name} must contain at least one path")
 
     return path_list
-
-
-### Normalize optional paths while preserving None.
-def _as_optional_path_list(paths, name):
-    if paths is None:
-        return None
-
-    return _as_path_list(paths, name)
 
 
 ### Read raster band 1 and convert NoData values to NaN.
@@ -66,19 +54,6 @@ def _read_band(path):
 
     if profile["nodata"] is not None:
         array = np.where(array == profile["nodata"], np.nan, array)
-
-    return array, profile
-
-
-### Read a Scene Classification Layer as integer class codes.
-def _read_scl(path):
-    with rasterio.open(path) as src:
-        array = src.read(1)
-        profile = {
-            "shape": array.shape,
-            "transform": src.transform,
-            "crs": src.crs,
-        }
 
     return array, profile
 
@@ -207,8 +182,6 @@ def optram_ndvi_str(
     output_csv=None,
     rm_low_vi=_UNSET,
     rm_hi_str=_UNSET,
-    scl_paths=None,
-    scl_keep=None,
     features=None,
     feature_id_col=_UNSET,
     plot_colors=_UNSET,
@@ -231,13 +204,6 @@ def optram_ndvi_str(
     rm_hi_str : bool, optional
         Drop STR values at or above Q3 + 1.5 * IQR. Defaults to the
         ``rm.hi.str`` option, initially false.
-    scl_paths : path or list of paths, optional
-        Sentinel-2 Scene Classification Layer rasters, one per scene, used
-        to mask out clouds/shadows/snow. Must be on the same grid as the
-        matching NDVI/STR pair.
-    scl_keep : iterable of int, optional
-        SCL class codes to keep. Defaults to {4, 5, 6, 7} (vegetation, bare
-        soils, water, unclassified). Only used when scl_paths is given.
     features : dict or path, optional
         A GeoJSON Feature/FeatureCollection (dict) or a path to a vector
         file. Features label pixels only when ``plot_colors`` is ``"feature"``
@@ -261,15 +227,15 @@ def optram_ndvi_str(
     Raises
     ------
     ValueError
-        If more than one VI matches an STR, supplied SCL files cannot be
-        matched uniquely, grids differ, or a configured value is invalid.
+        If more than one VI matches an STR, grids differ, or a configured
+        value is invalid.
 
     Returns
     -------
     pandas.DataFrame
         Valid paired pixels with coordinates, timestamp/month/tile metadata,
-        VI and STR values, source/pixel provenance, and optional ``SCL`` and
-        ``Feature_ID`` columns.
+        VI and STR values, source/pixel provenance, and an optional
+        ``Feature_ID`` column.
 
     Notes
     -----
@@ -304,26 +270,9 @@ def optram_ndvi_str(
     ndvi_path_list = _as_path_list(ndvi_paths, "ndvi_paths")
     str_path_list = _as_path_list(str_paths, "str_paths")
 
-    scl_path_list = _as_optional_path_list(scl_paths, "scl_paths")
-    scl_by_key = None
-    if scl_path_list is not None:
-        scl_by_key = {}
-        for scl_path in scl_path_list:
-            key = scl_path.stem.partition("_")[2]
-            if not key or key in scl_by_key:
-                raise ValueError("Cannot match SCL files uniquely")
-            scl_by_key[key] = scl_path
-
-        str_keys = [str_path.stem.partition("_")[2] for str_path in str_path_list]
-        if any(not key for key in str_keys) or len(str_keys) != len(set(str_keys)):
-            raise ValueError("Cannot match SCL files uniquely")
-        if set(scl_by_key) != set(str_keys):
-            raise ValueError("Cannot match SCL files uniquely")
-
     if max_rows is not None and max_rows < 1:
         raise ValueError("max_rows must be a positive integer")
 
-    scl_keep_set = DEFAULT_SCL_KEEP if scl_keep is None else frozenset(int(v) for v in scl_keep)
     feature_list = None
     if plot_colors in {"feature", "features"} and features is not None:
         loaded_features = _load_features(features)
@@ -347,12 +296,6 @@ def optram_ndvi_str(
                 f"More than one VI file matches STR file {str_path.name!r}"
             )
         ndvi_path = vi_matches[0]
-        scl_path = (
-            scl_by_key[str_path.stem.partition("_")[2]]
-            if scl_by_key is not None
-            else None
-        )
-
         # Read and validate one NDVI/STR raster pair.
         ndvi, ndvi_profile = _read_band(ndvi_path)
         str_array, str_profile = _read_band(str_path)
@@ -369,12 +312,6 @@ def optram_ndvi_str(
 
         if rm_low_vi:
             valid &= ndvi > 0.005
-
-        scl_array = None
-        if scl_path_list is not None:
-            scl_array, scl_profile = _read_scl(scl_path)
-            _check_same_grid(ndvi_profile, scl_profile, ndvi_path, scl_path)
-            valid &= np.isin(scl_array, list(scl_keep_set))
 
         feature_burn = None
         if feature_list is not None:
@@ -417,16 +354,12 @@ def optram_ndvi_str(
             "str_path": str(str_path),
         }
 
-        if scl_array is not None:
-            row_data["SCL"] = scl_array[rows, cols]
         if feature_burn is not None:
             row_data["Feature_ID"] = feature_burn[rows, cols]
 
         frames.append(pd.DataFrame(row_data))
 
     columns = list(_BASE_COLUMNS)
-    if scl_path_list is not None:
-        columns.append("SCL")
     if feature_list is not None:
         columns.append("Feature_ID")
 

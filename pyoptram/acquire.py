@@ -1,8 +1,9 @@
 ### Copernicus Data Space Acquisition
 # Stores CDSE credentials, searches the Sentinel-2 L2A catalog, and downloads
-# vegetation-index, STR, BOA, and optional SCL rasters for OPTRAM workflows.
+# vegetation-index, STR, and BOA rasters for OPTRAM workflows.
 
 from datetime import datetime, timedelta
+from importlib.resources import files
 from pathlib import Path
 import csv
 import json
@@ -387,15 +388,13 @@ def load_aoi(aoi):
     )
 
 
-### Create output folders for VI, STR, and optional BOA and SCL rasters.
-def prepare_output_folders(output_dir, veg_index=_UNSET, only_vi_str=_UNSET,
-                           download_scl=False):
+### Create output folders for VI, STR, and optional BOA rasters.
+def prepare_output_folders(output_dir, veg_index=_UNSET, only_vi_str=_UNSET):
     """Create acquisition output directories for requested products.
 
     ``veg_index`` and ``only_vi_str`` default to their current package
     options, initially ``"NDVI"`` and ``False``. VI and STR directories are
-    always created; BOA is omitted when ``only_vi_str`` is true, and SCL is
-    created only when ``download_scl`` is true.
+    always created; BOA is omitted when ``only_vi_str`` is true.
 
     Returns
     -------
@@ -414,9 +413,6 @@ def prepare_output_folders(output_dir, veg_index=_UNSET, only_vi_str=_UNSET,
     if not only_vi_str:
         folders["boa"] = output_dir / "BOA"
 
-    if download_scl:
-        folders["scl"] = output_dir / "SCL"
-
     for folder in folders.values():
         folder.mkdir(parents=True, exist_ok=True)
 
@@ -425,122 +421,24 @@ def prepare_output_folders(output_dir, veg_index=_UNSET, only_vi_str=_UNSET,
 
 ### Sentinel Hub scripts and catalog operations
 
-### Return a Sentinel Hub evalscript for a supported VI, STR, BOA, or SCL.
-def load_evalscript(script_name, swir_band=_UNSET, scl_mask=False, scl_keep=None):
-    """Return a Sentinel Hub evalscript used by the Process API."""
+### Return a packaged rOPTRAM Sentinel Hub evalscript.
+def load_evalscript(script_name, swir_band=_UNSET, scl_mask=False):
+    """Return the selected packaged rOPTRAM Process API evalscript."""
     if swir_band is _UNSET:
         swir_band = get_optram_option("SWIR_band")
-    vi_formulas = {
-        "NDVI": "(sample.B08 - sample.B04) / (sample.B08 + sample.B04)",
-        "SAVI": (
-            "1.5 * (sample.B08 - sample.B04) / "
-            "(sample.B08 + sample.B04 + 0.5)"
-        ),
-        "MSAVI": (
-            "(2 * sample.B08 + 1 - "
-            "Math.sqrt(Math.pow(2 * sample.B08 + 1, 2) - "
-            "8 * (sample.B08 - sample.B04))) / 2"
-        ),
-    }
+    if script_name in {"NDVI", "SAVI", "MSAVI"}:
+        suffix = "_masked" if scl_mask else ""
+        script_file = f"{script_name}{suffix}.js"
+    elif script_name == "STR":
+        script_file = f"STR{swir_band}.js"
+    elif script_name == "BOA":
+        script_file = "BOA.js"
+    else:
+        raise ValueError(f"Unknown script_name: {script_name}")
 
-    if script_name in vi_formulas:
-        variable_name = script_name.lower()
-        formula = vi_formulas[script_name]
-        if scl_mask:
-            keep = [2, 4, 5, 10] if scl_keep is None else sorted(set(scl_keep))
-            keep_js = ", ".join(str(int(value)) for value in keep)
-            return f"""
-//VERSION=3
-function setup() {{
-    return {{
-        input: [{{ bands: ["B04", "B08", "SCL"] }}],
-        output: {{ bands: 1, sampleType: "FLOAT32" }}
-    }};
-}}
-function evaluatePixel(sample) {{
-    let {variable_name} = {formula};
-    if ([{keep_js}].includes(sample.SCL)) {{
-        return [{variable_name}];
-    }}
-    return [NaN];
-}}
-""".strip()
-
-        return f"""
-//VERSION=3
-function setup() {{
-    return {{
-        input: [{{ bands: ["B04", "B08"] }}],
-        output: {{ bands: 1, sampleType: "FLOAT32" }}
-    }};
-}}
-function evaluatePixel(sample) {{
-    let {variable_name} = {formula};
-    return [{variable_name}];
-}}
-""".strip()
-
-    if script_name == "STR":
-        band = f"B{swir_band}"
-        return f"""
-//VERSION=3
-// Calculate SWIR Transformed Reflectance from Sentinel-2 B11 or B12.
-function setup() {{
-    return {{
-        input: [{{ bands: ["{band}"], units: "DN" }}],
-        output: {{ bands: 1, sampleType: "FLOAT32" }}
-    }};
-}}
-function evaluatePixel(sample) {{
-    let value = sample.{band};
-    if (value !== 0) {{
-        let v = value / 10000.0;
-        let str_value = ((1 - v) ** 2) / (2 * v);
-        return [str_value];
-    }}
-    return [0];
-}}
-""".strip()
-
-    if script_name == "BOA":
-        return """
-//VERSION=3
-// Download Sentinel-2 bottom-of-atmosphere bands as one multiband raster.
-function setup() {
-    return {
-        input: [{
-            bands: ["B01","B02","B03","B04","B05","B06",
-                    "B07","B08","B8A","B09","B11","B12"],
-            units: "DN"
-        }],
-        output: { bands: 12, sampleType: "UINT16" }
-    };
-}
-function evaluatePixel(sample) {
-    return [
-        sample.B01, sample.B02, sample.B03, sample.B04,
-        sample.B05, sample.B06, sample.B07, sample.B08,
-        sample.B8A, sample.B09, sample.B11, sample.B12
-    ];
-}
-""".strip()
-
-    if script_name == "SCL":
-        return """
-//VERSION=3
-// Download the Sentinel-2 Scene Classification Layer.
-function setup() {
-    return {
-        input: [{ bands: ["SCL"] }],
-        output: { bands: 1, sampleType: "UINT8" }
-    };
-}
-function evaluatePixel(sample) {
-    return [sample.SCL];
-}
-""".strip()
-
-    raise ValueError(f"Unknown script_name: {script_name}")
+    return (files("pyoptram") / "evalscripts" / script_file).read_text(
+        encoding="utf-8"
+    )
 
 
 ### Extract the Sentinel-2 MGRS tile from a catalog scene.
@@ -769,9 +667,8 @@ def download_index(
     height=None,
     overwrite=_UNSET,
     scl_mask=False,
-    scl_keep=None,
 ):
-    """Download one VI, STR, BOA, or SCL GeoTIFF through the Process API.
+    """Download one VI, STR, or BOA GeoTIFF through the Process API.
 
     Parameters
     ----------
@@ -780,7 +677,7 @@ def download_index(
     scene_datetime : str
         Catalog scene timestamp whose whole UTC day is used for the Process
         API time range, matching rOPTRAM's ``as.Date`` behavior.
-    script_name : {"NDVI", "SAVI", "MSAVI", "STR", "BOA", "SCL"}
+    script_name : {"NDVI", "SAVI", "MSAVI", "STR", "BOA"}
         Product evalscript to run.
     output_path : path-like
         Destination GeoTIFF.
@@ -798,8 +695,6 @@ def download_index(
         Defaults to the current rOPTRAM-compatible option, initially false.
     scl_mask : bool, default False
         Apply SCL masking to a supported VI evalscript.
-    scl_keep : iterable of int, optional
-        SCL classes retained by a masked VI; defaults to 2, 4, 5, and 10.
 
     Returns
     -------
@@ -872,7 +767,6 @@ def download_index(
             script_name,
             swir_band=swir_band,
             scl_mask=scl_mask,
-            scl_keep=scl_keep,
         ),
     }
 
@@ -884,7 +778,7 @@ def download_index(
 
 
 ### Build a metadata record for one downloaded scene.
-def _scene_record(scene, veg_index, vi_path, str_path, boa_path=None, scl_path=None):
+def _scene_record(scene, veg_index, vi_path, str_path, boa_path=None):
     properties = scene.get("properties", {})
     record = {
         "id": scene.get("id"),
@@ -894,7 +788,6 @@ def _scene_record(scene, veg_index, vi_path, str_path, boa_path=None, scl_path=N
         "tile": _scene_tile(scene),
         "STR": str_path,
         "BOA": boa_path,
-        "SCL": scl_path,
     }
     record[veg_index] = vi_path
     return record
@@ -920,8 +813,6 @@ def acquire_optram_inputs(
     height=None,
     overwrite=_UNSET,
     scl_mask=_UNSET,
-    download_scl=False,
-    scl_keep=None,
     area_cover=_UNSET,
     period=_UNSET,
     save_img_list=_UNSET,
@@ -938,7 +829,7 @@ def acquire_optram_inputs(
         ``YYYY-MM-DD`` range with ``to_date`` strictly later than
         ``from_date``.
     output_dir : path-like
-        Parent directory for VI, STR, optional BOA, and optional SCL rasters.
+        Parent directory for VI, STR, and optional BOA rasters.
     client_id, client_secret : str, optional
         Explicit OAuth credentials. A stored pair is used if either is
         omitted.
@@ -968,11 +859,8 @@ def acquire_optram_inputs(
     overwrite : bool, optional
         Redownload existing outputs; defaults to false.
     scl_mask : bool, optional
-        Mask acquired VI pixels using SCL; defaults to true.
-    download_scl : bool, default False
-        Also download raw SCL rasters.
-    scl_keep : iterable of int, optional
-        Classes retained by the VI mask; defaults to 2, 4, 5, and 10.
+        Select the rOPTRAM VI evalscript retaining SCL classes 2, 4, 5, and
+        10; defaults to true. STR remains unmasked.
     area_cover : float, optional
         Minimum spherical AOI coverage, rounded to three decimals before an
         inclusive comparison. Defaults to 99.0.
@@ -985,9 +873,9 @@ def acquire_optram_inputs(
     Returns
     -------
     dict
-        Lists keyed by the selected VI, ``STR``, ``BOA``, ``SCL``, and
-        ``scenes``. Scene records contain paths, timestamp, tile, cloud cover,
-        and catalog ID. ``scl_keep`` is included when explicitly supplied.
+        Lists keyed by the selected VI, ``STR``, ``BOA``, and ``scenes``.
+        Scene records contain paths, timestamp, tile, cloud cover, and catalog
+        ID.
 
     Raises
     ------
@@ -1078,7 +966,6 @@ def acquire_optram_inputs(
         output_dir,
         veg_index=veg_index,
         only_vi_str=only_vi_str,
-        download_scl=download_scl,
     )
 
     scenes = search_catalog(
@@ -1094,7 +981,7 @@ def acquire_optram_inputs(
     )
 
     if not scenes:
-        return {veg_index: [], "STR": [], "BOA": [], "SCL": [], "scenes": []}
+        return {veg_index: [], "STR": [], "BOA": [], "scenes": []}
 
     if save_img_list:
         image_list = {"type": "FeatureCollection", "features": scenes}
@@ -1102,7 +989,7 @@ def acquire_optram_inputs(
             json.dumps(image_list, indent=2), encoding="utf-8"
         )
 
-    results = {veg_index: [], "STR": [], "BOA": [], "SCL": [], "scenes": []}
+    results = {veg_index: [], "STR": [], "BOA": [], "scenes": []}
 
     for scene in scenes:
         scene_id = scene["id"]
@@ -1124,7 +1011,6 @@ def acquire_optram_inputs(
             height=height,
             overwrite=overwrite,
             scl_mask=scl_mask,
-            scl_keep=scl_keep,
         )
 
         str_file = download_index(
@@ -1141,8 +1027,6 @@ def acquire_optram_inputs(
         )
 
         boa_file = None
-        scl_file = None
-
         if not only_vi_str and "boa" in folders:
             boa_path = folders["boa"] / f"BOA_{safe_time}_{scene_id}.tif"
             boa_file = download_index(
@@ -1158,35 +1042,12 @@ def acquire_optram_inputs(
                 overwrite=overwrite,
             )
 
-        if download_scl and "scl" in folders:
-            scl_path = folders["scl"] / f"SCL_{safe_time}_{scene_id}.tif"
-            scl_file = download_index(
-                aoi_geometry=aoi_geometry,
-                scene_datetime=scene_datetime,
-                script_name="SCL",
-                output_path=scl_path,
-                token=token,
-                swir_band=swir_band,
-                resolution=resolution,
-                width=width,
-                height=height,
-                overwrite=overwrite,
-            )
-
         results[veg_index].append(vi_file)
         results["STR"].append(str_file)
         if boa_file is not None:
             results["BOA"].append(boa_file)
-        if scl_file is not None:
-            results["SCL"].append(scl_file)
-
         results["scenes"].append(
-            _scene_record(
-                scene, veg_index, vi_file, str_file, boa_file, scl_file
-            )
+            _scene_record(scene, veg_index, vi_file, str_file, boa_file)
         )
-
-    if scl_keep is not None:
-        results["scl_keep"] = sorted(int(value) for value in set(scl_keep))
 
     return results

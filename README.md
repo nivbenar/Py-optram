@@ -68,13 +68,11 @@ acquired = acquire_optram_inputs(
     save_img_list=False,
     only_vi_str=False,
     resolution=10,
-    download_scl=True,
 )
 
 df = optram_ndvi_str(
     ndvi_paths=acquired["NDVI"],
     str_paths=acquired["STR"],
-    scl_paths=acquired["SCL"],
     rm_low_vi=False,
     rm_hi_str=False,
 )
@@ -157,8 +155,6 @@ features_geojson = {
 df = optram_ndvi_str(
     ndvi_paths=acquired["NDVI"],
     str_paths=acquired["STR"],
-    scl_paths=acquired["SCL"],        # optional SCL cloud-quality mask input
-    scl_keep={4, 5, 6, 7},            # keep SCL classes (defaults to {4,5,6,7})
     features=features_geojson,        # optional feature labels for plotting
     feature_id_col="ID",              # creates Feature_ID column
     plot_colors="features",           # enables feature-ID preparation
@@ -182,8 +178,8 @@ The remaining compatibility differences in this workflow are:
 - Python requires identical VI/STR grids. rOPTRAM joins raster values by
   coordinates and can therefore create a partial intersection.
 - Python always filters non-finite values, VI outside `[-1, 1]`, and
-  non-positive STR. Its optional low-VI, high-STR, and SCL filtering behavior
-  is unchanged.
+  non-positive STR. Its optional low-VI and high-STR filtering behavior is
+  unchanged.
 - Like rOPTRAM, `max_tbl_size` defaults to one million rows, is divided across
   scenes, and randomly samples each oversized scene. Python's `max_rows` is an
   additional optional final sample.
@@ -221,7 +217,10 @@ rOPTRAM: NDVI, SAVI, MSAVI, CI, and BSCI. It uses rOPTRAM's one-based default
 band numbers and its reflectance scaling formula. CDSE acquisition supports
 NDVI, SAVI, and MSAVI, matching the evalscripts supplied by rOPTRAM; CI and
 BSCI are local calculations only. Masked CDSE products keep rOPTRAM's SCL
-classes 2, 4, 5, and 10.
+classes 2, 4, 5, and 10. The rOPTRAM option `scm_mask=True` (the acquisition
+argument is `scl_mask=True`) selects this masked VI evalscript. STR is not
+SCL-masked directly; pixels whose VI is masked are removed when the VI-STR
+table is built.
 
 Two apparent rOPTRAM implementation errors are intentionally not reproduced.
 Scaling is applied once instead of twice, and `calculate_vi` requires only the

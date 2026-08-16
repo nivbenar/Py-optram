@@ -70,8 +70,15 @@ def test_store_and_retrieve_credentials(credential_file):
 def test_load_evalscript_uses_roptram_vi_formula(veg_index, formula):
     script = load_evalscript(veg_index)
     assert 'bands: ["B04", "B08"]' in script
-    assert formula in script
+    assert formula in " ".join(script.split())
     assert 'sampleType: "FLOAT32"' in script
+def test_load_evalscript_selects_roptram_mask_and_swir_files():
+    assert "SCL" not in load_evalscript("NDVI", scl_mask=False)
+    masked = load_evalscript("NDVI", scl_mask=True)
+    assert 'bands: ["B04", "B08", "SCL"]' in masked
+    assert "[2, 4, 5, 10].includes(sample.SCL)" in masked
+    assert 'bands: ["B11"]' in load_evalscript("STR", swir_band=11)
+    assert 'bands: ["B12"]' in load_evalscript("STR", swir_band=12)
 def test_resolution_output_matches_cdse_centroid_conversion():
     geometry = acquire.load_aoi(
         (12.292349, 47.810849, 12.569037, 47.967123)
