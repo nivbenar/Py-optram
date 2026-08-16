@@ -116,22 +116,34 @@ def test_optram_ndvi_str_max_tbl_size_samples_each_scene_evenly(tmp_path):
     )
     assert len(dataframe) == 10_000
     assert dataframe["source_index"].value_counts().to_dict() == {0: 5000, 1: 5000}
-def test_optram_ndvi_str_pairs_files_by_scene_name_in_str_order(tmp_path):
+def test_optram_ndvi_str_matches_vi_files_in_str_order(tmp_path):
     ndvi_a = tmp_path / "NDVI_a.tif"
     ndvi_b = tmp_path / "NDVI_b.tif"
+    ndvi_extra = tmp_path / "NDVI_orphan.tif"
     str_a = tmp_path / "STR_a.tif"
     str_b = tmp_path / "STR_b.tif"
+    str_unmatched = tmp_path / "STR_unmatched.tif"
     _write_single_band_tif(ndvi_a, np.array([[0.1]], dtype=np.float32))
     _write_single_band_tif(ndvi_b, np.array([[0.9]], dtype=np.float32))
+    _write_single_band_tif(ndvi_extra, np.array([[0.5]], dtype=np.float32))
     _write_single_band_tif(str_a, np.array([[1.0]], dtype=np.float32))
     _write_single_band_tif(str_b, np.array([[2.0]], dtype=np.float32))
+    _write_single_band_tif(str_unmatched, np.array([[3.0]], dtype=np.float32))
     dataframe = optram_ndvi_str(
-        ndvi_paths=[ndvi_a, ndvi_b],
-        str_paths=[str_b, str_a],
+        ndvi_paths=[ndvi_a, ndvi_b, ndvi_extra],
+        str_paths=[str_b, str_unmatched, str_a],
     )
     np.testing.assert_allclose(dataframe["NDVI"], [0.9, 0.1])
     np.testing.assert_allclose(dataframe["STR"], [2.0, 1.0])
-    assert dataframe["source_index"].tolist() == [0, 1]
+def test_optram_ndvi_str_rejects_multiple_vi_matches(tmp_path):
+    str_path = tmp_path / "STR_a.tif"
+    ndvi_path = tmp_path / "NDVI_a.tif"
+    other_vi_path = tmp_path / "SAVI_a.tif"
+    array = np.ones((1, 1), dtype=np.float32)
+    for path in (str_path, ndvi_path, other_vi_path):
+        _write_single_band_tif(path, array)
+    with pytest.raises(ValueError, match="More than one VI file matches"):
+        optram_ndvi_str([ndvi_path, other_vi_path], [str_path])
 def test_optram_ndvi_str_parses_roptram_date_and_tile_filename(tmp_path):
     ndvi_path = tmp_path / "NDVI_2022-11-11_T36RXV.tif"
     str_path = tmp_path / "STR_2022-11-11_T36RXV.tif"

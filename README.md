@@ -162,17 +162,15 @@ df = optram_ndvi_str(
     features=features_geojson,        # optional feature labels for plotting
     feature_id_col="ID",              # creates Feature_ID column
     plot_colors="features",           # enables feature-ID preparation
-    max_tbl_size=1_000_000,           # divided and sampled across scenes
+    max_tbl_size=1_000_000,           # divided and sampled across STR files
     max_rows=250_000,                 # optional final downsample
-    scene_metadata=acquired["scenes"] # robust datetime/tile metadata lookup
 )
 ```
 
-VI, STR, and optional SCL files are paired by the filename portion after the
-product prefix (for example, `NDVI_2022-11-11_T36RXV.tif` pairs with
-`STR_2022-11-11_T36RXV.tif`). Pairing is deterministic and follows STR input
-order. Missing or duplicate scene products raise `ValueError`; the function
-never silently runs a partial set of scenes. Use `output_csv` to persist the
+Each STR file is matched to a VI file by its filename identifier (for example,
+`STR_2022-11-11_T36RXV.tif` matches `NDVI_2022-11-11_T36RXV.tif`). Processing
+follows STR input order, unmatched STR files are skipped, and extra VI files
+are ignored, matching rOPTRAM. Use `output_csv` to persist the
 returned table to a caller-selected CSV path.
 
 ### VI–STR compatibility notes

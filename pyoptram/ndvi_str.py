@@ -1,6 +1,6 @@
 ### VI-STR Pixel-Table Assembly
-# Pairs vegetation-index and STR rasters by scene, filters their pixels, and
-# assembles spatial and scene metadata in a dataframe.
+# Pairs vegetation-index and STR rasters by filename, filters their pixels,
+# and assembles spatial and file metadata in a dataframe.
 
 import json
 import re
@@ -51,74 +51,6 @@ def _as_optional_path_list(paths, name):
         return None
 
     return _as_path_list(paths, name)
-
-
-### Derive the filename portion shared by products from one scene.
-def _scene_key(path):
-    """Return the filename portion shared by products from one scene."""
-    stem = Path(path).stem
-    _, separator, key = stem.partition("_")
-    if not separator or not key:
-        raise ValueError(
-            f"Cannot derive a scene key from filename {Path(path).name!r}; "
-            "expected a product prefix followed by '_'"
-        )
-    return key
-
-
-### Index product paths by scene key and reject duplicate keys.
-def _paths_by_scene(paths, name):
-    """Index paths by scene key, rejecting ambiguous product filenames."""
-    indexed = {}
-    for path in paths:
-        key = _scene_key(path)
-        if key in indexed:
-            raise ValueError(
-                f"Cannot match {name} uniquely for scene {key!r}: "
-                f"{indexed[key]} and {path}"
-            )
-        indexed[key] = path
-    return indexed
-
-
-### Pair VI, STR, and optional SCL paths while preserving STR order.
-def _pair_scene_paths(ndvi_paths, str_paths, scl_paths=None):
-    """Pair required scene products by filename, preserving STR order."""
-    ndvi_by_scene = _paths_by_scene(ndvi_paths, "VI files")
-    str_by_scene = _paths_by_scene(str_paths, "STR files")
-
-    ndvi_keys = set(ndvi_by_scene)
-    str_keys = set(str_by_scene)
-    if ndvi_keys != str_keys:
-        missing_vi = sorted(str_keys - ndvi_keys)
-        missing_str = sorted(ndvi_keys - str_keys)
-        details = []
-        if missing_vi:
-            details.append(f"missing VI for scenes: {missing_vi}")
-        if missing_str:
-            details.append(f"missing STR for scenes: {missing_str}")
-        raise ValueError("Cannot match VI and STR files uniquely; " + "; ".join(details))
-
-    scl_by_scene = None
-    if scl_paths is not None:
-        scl_by_scene = _paths_by_scene(scl_paths, "SCL files")
-        scl_keys = set(scl_by_scene)
-        if scl_keys != str_keys:
-            missing_scl = sorted(str_keys - scl_keys)
-            extra_scl = sorted(scl_keys - str_keys)
-            details = []
-            if missing_scl:
-                details.append(f"missing SCL for scenes: {missing_scl}")
-            if extra_scl:
-                details.append(f"SCL has no VI/STR scene: {extra_scl}")
-            raise ValueError("Cannot match SCL files uniquely; " + "; ".join(details))
-
-    pairs = []
-    for str_path in str_paths:
-        key = _scene_key(str_path)
-        scl_path = scl_by_scene[key] if scl_by_scene is not None else None
-        pairs.append((ndvi_by_scene[key], str_path, scl_path))
-    return pairs
 
 
 ### Read raster band 1 and convert NoData values to NaN.
@@ -177,38 +109,6 @@ def _file_metadata(path):
     tile = tile_match.group(1) if tile_match else pd.NA
 
     return timestamp, month, tile
-
-
-### Index acquisition scene records by every raster path they reference.
-def _build_scene_lookup(scene_metadata):
-    if not scene_metadata:
-        return {}
-
-    lookup = {}
-    for record in scene_metadata:
-        for key in ("NDVI", "STR", "BOA", "SCL"):
-            path = record.get(key)
-            if path:
-                lookup[str(Path(path))] = record
-
-    return lookup
-
-
-### Extract timestamp, month, and tile values from a scene record.
-def _metadata_from_scene_record(record):
-    timestamp = pd.to_datetime(record.get("datetime"), utc=True, errors="coerce")
-    month = timestamp.month if pd.notna(timestamp) else pd.NA
-    tile = record.get("tile")
-    tile = tile if tile else pd.NA
-    return timestamp, month, tile
-
-
-### Resolve scene metadata from acquisition records or the VI filename.
-def _scene_metadata_for(ndvi_path, str_path, scene_lookup):
-    record = scene_lookup.get(str(ndvi_path)) or scene_lookup.get(str(str_path))
-    if record is not None:
-        return _metadata_from_scene_record(record)
-    return _file_metadata(ndvi_path)
 
 
 ### Feature filtering
@@ -314,7 +214,6 @@ def optram_ndvi_str(
     plot_colors=_UNSET,
     max_tbl_size=_UNSET,
     max_rows=None,
-    scene_metadata=None,
     random_state=None,
 ):
     """Build a dataframe of paired NDVI and STR pixel values.
@@ -322,8 +221,8 @@ def optram_ndvi_str(
     Parameters
     ----------
     ndvi_paths, str_paths : path or list of paths
-        VI and STR rasters paired by the filename portion after the product
-        prefix. Every scene must have exactly one VI and one STR file.
+        VI and STR rasters matched from each STR basename, in STR input order.
+        STR files without a matching VI are skipped.
     output_csv : path, optional
         If given, write the resulting dataframe to this CSV path.
     rm_low_vi : bool, optional
@@ -356,18 +255,14 @@ def optram_ndvi_str(
     max_rows : int, optional
         If the assembled (and filtered) table exceeds this many rows, it is
         randomly downsampled to this size.
-    scene_metadata : list of dict, optional
-        The "scenes" records returned by acquire_optram_inputs. When given,
-        TimestampUTC/Month/Tile are looked up from these records instead of
-        being parsed from filenames, which is more robust.
     random_state : int, optional
-        Seed used for per-scene and max_rows downsampling.
+        Seed used for per-file and max_rows downsampling.
 
     Raises
     ------
     ValueError
-        If required VI, STR, or supplied SCL files cannot be matched uniquely
-        by scene filename, grids differ, or a configured value is invalid.
+        If more than one VI matches an STR, supplied SCL files cannot be
+        matched uniquely, grids differ, or a configured value is invalid.
 
     Returns
     -------
@@ -379,8 +274,8 @@ def optram_ndvi_str(
     Notes
     -----
     Finite VI values in [-1, 1] and positive STR values are retained before
-    configured filters. ``max_tbl_size`` is divided evenly across scenes and
-    oversized scenes are randomly sampled. Unlike rOPTRAM, output is written
+    configured filters. ``max_tbl_size`` is divided evenly across STR files and
+    oversized STR files are randomly sampled. Unlike rOPTRAM, output is written
     only when ``output_csv`` is supplied, and the format is CSV rather than
     RDS. Feature labeling implements rOPTRAM's intended behavior without its
     broken dataframe join.
@@ -410,7 +305,20 @@ def optram_ndvi_str(
     str_path_list = _as_path_list(str_paths, "str_paths")
 
     scl_path_list = _as_optional_path_list(scl_paths, "scl_paths")
-    scene_pairs = _pair_scene_paths(ndvi_path_list, str_path_list, scl_path_list)
+    scl_by_key = None
+    if scl_path_list is not None:
+        scl_by_key = {}
+        for scl_path in scl_path_list:
+            key = scl_path.stem.partition("_")[2]
+            if not key or key in scl_by_key:
+                raise ValueError("Cannot match SCL files uniquely")
+            scl_by_key[key] = scl_path
+
+        str_keys = [str_path.stem.partition("_")[2] for str_path in str_path_list]
+        if any(not key for key in str_keys) or len(str_keys) != len(set(str_keys)):
+            raise ValueError("Cannot match SCL files uniquely")
+        if set(scl_by_key) != set(str_keys):
+            raise ValueError("Cannot match SCL files uniquely")
 
     if max_rows is not None and max_rows < 1:
         raise ValueError("max_rows must be a positive integer")
@@ -422,14 +330,29 @@ def optram_ndvi_str(
         if any(feature_id_col in (feature.get("properties") or {})
                for feature in loaded_features):
             feature_list = loaded_features
-    scene_lookup = _build_scene_lookup(scene_metadata)
-
     frames = []
     rasterized_features_cache = {}
-    scene_cap = int(max_tbl_size / len(scene_pairs))
+    scene_cap = int(max_tbl_size / len(str_path_list))
     rng = np.random.default_rng(random_state)
 
-    for source_index, (ndvi_path, str_path, scl_path) in enumerate(scene_pairs):
+    for source_index, str_path in enumerate(str_path_list):
+        unique_str = str_path.name.replace("STR_", "")
+        vi_matches = [
+            path for path in ndvi_path_list if re.search(unique_str, path.name)
+        ]
+        if not vi_matches:
+            continue
+        if len(vi_matches) > 1:
+            raise ValueError(
+                f"More than one VI file matches STR file {str_path.name!r}"
+            )
+        ndvi_path = vi_matches[0]
+        scl_path = (
+            scl_by_key[str_path.stem.partition("_")[2]]
+            if scl_by_key is not None
+            else None
+        )
+
         # Read and validate one NDVI/STR raster pair.
         ndvi, ndvi_profile = _read_band(ndvi_path)
         str_array, str_profile = _read_band(str_path)
@@ -477,7 +400,7 @@ def optram_ndvi_str(
 
         # Convert raster pixels to dataframe rows.
         xs, ys = xy(ndvi_profile["transform"], rows, cols)
-        timestamp, month, tile = _scene_metadata_for(ndvi_path, str_path, scene_lookup)
+        timestamp, month, tile = _file_metadata(ndvi_path)
 
         row_data = {
             "X": xs,
