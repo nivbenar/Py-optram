@@ -29,9 +29,9 @@ def optram(
 
     Parameters
     ----------
-    aoi : dict, path-like, or sequence of four numbers
-        Area of interest accepted by :func:`acquire_optram_inputs` and
-        forwarded to feature handling in :func:`optram_ndvi_str`.
+    aoi : geopandas.GeoDataFrame
+        Polygon or MultiPolygon area of interest. The original features are
+        forwarded to :func:`optram_ndvi_str` for optional feature labeling.
     from_date, to_date : str
         Acquisition date range formatted as ``YYYY-MM-DD``.
     s2_output_dir : path-like, optional

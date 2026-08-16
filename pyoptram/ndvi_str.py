@@ -2,11 +2,11 @@
 # Pairs vegetation-index and STR rasters by filename, filters their pixels,
 # and assembles spatial and file metadata in a dataframe.
 
-import json
 import re
 from numbers import Real
 from pathlib import Path
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rasterio
@@ -88,51 +88,18 @@ def _file_metadata(path):
 
 ### Feature filtering
 
-### Load feature input as a list of GeoJSON Feature dictionaries.
+### Convert a GeoDataFrame to GeoJSON features for rasterization.
 def _load_features(features):
     if features is None:
         return None
-
-    if isinstance(features, (str, Path)):
-        path = Path(features)
-        if not path.exists():
-            raise FileNotFoundError(f"Features file not found: {path}")
-
-        if path.suffix.lower() in (".geojson", ".json"):
-            with open(path, "r", encoding="utf-8") as handle:
-                data = json.load(handle)
-        else:
-            try:
-                import geopandas as gpd
-            except ImportError as exc:
-                raise ImportError(
-                    "Reading this features file type requires geopandas. "
-                    "Install geopandas or pass a GeoJSON file/dict."
-                ) from exc
-
-            table = gpd.read_file(path)
-            if table.crs is not None and table.crs.to_epsg() != 4326:
-                table = table.to_crs(4326)
-            data = json.loads(table.to_json())
-
-    elif isinstance(features, dict):
-        data = features
-    else:
-        raise TypeError(
-            "features must be a GeoJSON dict/Feature/FeatureCollection or a "
-            "path to a vector file"
-        )
-
-    if data.get("type") == "Feature":
-        data = {"type": "FeatureCollection", "features": [data]}
-
-    if data.get("type") != "FeatureCollection" or "features" not in data:
-        raise ValueError("features must be a GeoJSON Feature or FeatureCollection")
-
-    if not data["features"]:
+    if not isinstance(features, gpd.GeoDataFrame):
+        raise TypeError("features must be a geopandas.GeoDataFrame")
+    if features.empty:
         raise ValueError("features contains no geometries")
+    if features.crs is None:
+        raise ValueError("features must have a CRS")
 
-    return data["features"]
+    return list(features.to_crs(4326).iterfeatures())
 
 
 ### Burn feature IDs onto a raster grid for per-pixel membership lookup.
@@ -204,9 +171,8 @@ def optram_ndvi_str(
     rm_hi_str : bool, optional
         Drop STR values at or above Q3 + 1.5 * IQR. Defaults to the
         ``rm.hi.str`` option, initially false.
-    features : dict or path, optional
-        A GeoJSON Feature/FeatureCollection (dict) or a path to a vector
-        file. Features label pixels only when ``plot_colors`` is ``"feature"``
+    features : geopandas.GeoDataFrame, optional
+        Polygon features label pixels only when ``plot_colors`` is ``"feature"``
         or ``"features"``; they never change the valid VI-STR population.
         Pixels outside all features receive a missing ``Feature_ID``.
     feature_id_col : str, optional

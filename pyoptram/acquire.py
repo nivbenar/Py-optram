@@ -12,10 +12,10 @@ import os
 import platform
 import warnings
 
+import geopandas as gpd
 import requests
 import s2rst
 from shapely.geometry import mapping, shape
-from shapely.ops import unary_union
 
 from .options import _UNSET, _resolve_optram_option, get_optram_option
 
@@ -293,99 +293,22 @@ def validate_date(date_text, name):
     return date_text
 
 
-### Read and normalize the geometry from a vector file.
-def _geometry_from_vector_file(path):
-    try:
-        import geopandas as gpd
-    except ImportError as exc:
-        raise ImportError(
-            "Reading this AOI file type requires geopandas. Install geopandas "
-            "or pass a GeoJSON file, GeoJSON dictionary, or bbox tuple."
-        ) from exc
-
-    data = gpd.read_file(path)
-
-    if data.empty:
-        raise ValueError(f"AOI file has no features: {path}")
-
-    if data.crs is not None and data.crs.to_epsg() != 4326:
-        data = data.to_crs(4326)
-
-    geometry = data.geometry.unary_union
-    return json.loads(gpd.GeoSeries([geometry], crs="EPSG:4326").to_json())[
-        "features"
-    ][0]["geometry"]
-
-
-### Union every polygon in a GeoJSON FeatureCollection.
-def _union_feature_collection(data):
-    """Union all Polygon/MultiPolygon features into one GeoJSON geometry.
-
-    Returns one Polygon or MultiPolygon used for acquisition AOI parity with
-    rOPTRAM.
-    """
-    features = data.get("features")
-    if not features:
-        raise ValueError("AOI FeatureCollection must contain at least one feature")
-
-    geometries = []
-    for feature in features:
-        if feature.get("type") != "Feature" or not feature.get("geometry"):
-            raise ValueError("AOI FeatureCollection contains an invalid feature")
-        geometry = shape(feature["geometry"])
-        if geometry.geom_type not in {"Polygon", "MultiPolygon"}:
-            raise ValueError("AOI features must be Polygon or MultiPolygon geometries")
-        geometries.append(geometry)
-
-    return mapping(unary_union(geometries))
-
-
-### Convert a GeoJSON object, vector file, or bbox to GeoJSON geometry.
+### Validate and convert a GeoDataFrame AOI to one WGS84 GeoJSON geometry.
 def load_aoi(aoi):
-    """Normalize an AOI, geometrically unioning GeoJSON FeatureCollections."""
-    if isinstance(aoi, dict):
-        if "type" not in aoi:
-            raise ValueError("AOI dictionary must contain a GeoJSON 'type'.")
-        if aoi["type"] == "Feature":
-            return aoi["geometry"]
-        if aoi["type"] == "FeatureCollection":
-            return _union_feature_collection(aoi)
-        return aoi
+    """Return the union of a polygon GeoDataFrame in EPSG:4326."""
+    if not isinstance(aoi, gpd.GeoDataFrame):
+        raise TypeError("aoi must be a geopandas.GeoDataFrame")
+    if aoi.empty or aoi.geometry.is_empty.any():
+        raise ValueError("aoi must contain at least one non-empty geometry")
+    geometry_types = aoi.geometry.geom_type
+    if not ((geometry_types == "Polygon").all() or
+            (geometry_types == "MultiPolygon").all()):
+        raise ValueError("aoi must contain only Polygon or only MultiPolygon geometries")
+    if aoi.crs is None:
+        raise ValueError("aoi must have a CRS")
 
-    if isinstance(aoi, (str, Path)):
-        path = Path(aoi)
-        if not path.exists():
-            raise FileNotFoundError(f"AOI file not found: {path}")
-
-        if path.suffix.lower() in (".geojson", ".json"):
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
-            if data["type"] == "FeatureCollection":
-                return _union_feature_collection(data)
-            if data["type"] == "Feature":
-                return data["geometry"]
-            return data
-
-        return _geometry_from_vector_file(path)
-
-    if isinstance(aoi, (list, tuple)) and len(aoi) == 4:
-        minx, miny, maxx, maxy = aoi
-        return {
-            "type": "Polygon",
-            "coordinates": [[
-                [minx, miny],
-                [maxx, miny],
-                [maxx, maxy],
-                [minx, maxy],
-                [minx, miny],
-            ]],
-        }
-
-    raise ValueError(
-        "AOI must be a GeoJSON dict, a vector file path, or a bbox tuple "
-        "(minx, miny, maxx, maxy)."
-    )
+    aoi_wgs84 = aoi.to_crs(4326)
+    return mapping(aoi_wgs84.geometry.union_all())
 
 
 ### Create output folders for VI, STR, and optional BOA rasters.
@@ -821,9 +744,8 @@ def acquire_optram_inputs(
 
     Parameters
     ----------
-    aoi : dict, path-like, or sequence of four numbers
-        GeoJSON geometry/Feature/FeatureCollection, vector-file path, or
-        ``(minx, miny, maxx, maxy)`` bounding box. FeatureCollections are
+    aoi : geopandas.GeoDataFrame
+        Polygon or MultiPolygon area of interest. Multiple features are
         geometrically unioned before acquisition, matching rOPTRAM.
     from_date, to_date : str
         ``YYYY-MM-DD`` range with ``to_date`` strictly later than

@@ -9,6 +9,7 @@ description = "Python implementation of the OPTRAM soil moisture model"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+    "geopandas",
     "matplotlib",
     "numpy",
     "pandas",

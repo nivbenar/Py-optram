@@ -1,37 +1,37 @@
 import json
 from pathlib import Path
+import geopandas as gpd
 import pytest
-from shapely.geometry import shape
+from shapely.geometry import box, shape
 import pyoptram.acquire as acquire
 from pyoptram.acquire import load_evalscript
-def _polygon_feature(coordinates):
-    return {
-        "type": "Feature",
-        "properties": {},
-        "geometry": {"type": "Polygon", "coordinates": [coordinates]},
-    }
-def _two_feature_aoi(overlap=False):
-    second_min_x = 1.0 if overlap else 2.0
-    return {
-        "type": "FeatureCollection",
-        "features": [
-            _polygon_feature(
-                [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0], [0.0, 0.0]]
-            ),
-            _polygon_feature(
-                [[second_min_x, 0.0], [3.0, 0.0], [3.0, 2.0],
-                 [second_min_x, 2.0], [second_min_x, 0.0]]
-            ),
-        ],
-    }
-def test_load_aoi_unions_feature_collection_dict():
-    geometry = shape(acquire.load_aoi(_two_feature_aoi()))
+
+
+def _aoi(minx=0.0, miny=0.0, maxx=1.0, maxy=1.0, crs=4326):
+    return gpd.GeoDataFrame(geometry=[box(minx, miny, maxx, maxy)], crs=crs)
+
+
+def test_load_aoi_accepts_geodataframe_and_unions_features():
+    aoi = gpd.GeoDataFrame(
+        geometry=[box(0, 0, 2, 2), box(2, 0, 3, 2)], crs=4326
+    )
+    geometry = shape(acquire.load_aoi(aoi))
     assert geometry.bounds == (0.0, 0.0, 3.0, 2.0)
     assert geometry.area == 6.0
+
+
+def test_load_aoi_rejects_non_geodataframe_and_transforms_to_wgs84():
+    with pytest.raises(TypeError, match="geopandas.GeoDataFrame"):
+        acquire.load_aoi((0, 0, 1, 1))
+    projected = _aoi(0, 0, 111319.49, 111325.14, crs=3857)
+    assert shape(acquire.load_aoi(projected)).bounds == pytest.approx(
+        (0, 0, 1, 1), abs=1e-6
+    )
+    assert projected.crs.to_epsg() == 3857
 def test_acquisition_rejects_equal_dates(tmp_path):
     with pytest.raises(ValueError, match="to_date must be later than from_date"):
         acquire.acquire_optram_inputs(
-            aoi=(0, 0, 1, 1),
+            aoi=_aoi(),
             from_date="2024-01-01",
             to_date="2024-01-01",
             output_dir=tmp_path,
@@ -80,9 +80,7 @@ def test_load_evalscript_selects_roptram_mask_and_swir_files():
     assert 'bands: ["B11"]' in load_evalscript("STR", swir_band=11)
     assert 'bands: ["B12"]' in load_evalscript("STR", swir_band=12)
 def test_resolution_output_matches_cdse_centroid_conversion():
-    geometry = acquire.load_aoi(
-        (12.292349, 47.810849, 12.569037, 47.967123)
-    )
+    geometry = acquire.load_aoi(_aoi(12.292349, 47.810849, 12.569037, 47.967123))
     output = acquire._resolution_output(geometry, 10)
     assert output == pytest.approx(
         {
@@ -92,7 +90,7 @@ def test_resolution_output_matches_cdse_centroid_conversion():
     )
 def test_resolution_output_rejects_more_than_2500_pixels():
     with pytest.raises(ValueError, match="exceeds the allowed maximum"):
-        acquire._resolution_output(acquire.load_aoi((0, 0, 0.23, 0.1)), 10)
+        acquire._resolution_output(acquire.load_aoi(_aoi(0, 0, 0.23, 0.1)), 10)
 class _DownloadResponse:
     status_code = 200
     text = ""
@@ -139,7 +137,7 @@ def test_catalog_paginates_beyond_one_hundred_scenes(monkeypatch):
         ],
     )
     scenes = acquire.search_catalog(
-        acquire.load_aoi((0, 0, 1, 1)),
+        acquire.load_aoi(_aoi()),
         "2024-01-01",
         "2024-01-03",
         "token",
@@ -153,7 +151,7 @@ def test_catalog_cloud_filter_is_strict(monkeypatch):
         [_CatalogResponse([_scene(1, cloud=11.999), _scene(2, cloud=12)])],
     )
     scenes = acquire.search_catalog(
-        acquire.load_aoi((0, 0, 1, 1)),
+        acquire.load_aoi(_aoi()),
         "2024-01-01",
         "2024-01-03",
         "token",
@@ -174,7 +172,7 @@ def test_tile_filter_uses_case_sensitive_source_id_substring(monkeypatch):
         ],
     )
     scenes = acquire.search_catalog(
-        acquire.load_aoi((0, 0, 1, 1)),
+        acquire.load_aoi(_aoi()),
         "2024-01-01",
         "2024-01-03",
         "token",
@@ -182,7 +180,7 @@ def test_tile_filter_uses_case_sensitive_source_id_substring(monkeypatch):
     )
     assert [scene["id"] for scene in scenes] == ["S2A_TEST_001_36RXV_EXTRA"]
 def test_s2_area_coverage_rounds_to_three_decimals():
-    aoi = acquire._s2_polygon(acquire.load_aoi((0, 0, 1, 1)))
+    aoi = acquire._s2_polygon(acquire.load_aoi(_aoi()))
     retained = acquire._area_coverage(
         aoi, {"type": "Polygon", "coordinates": [_ring(0, 0, 1, 0.989995)]}
     )
@@ -198,7 +196,7 @@ def test_catalog_coverage_comparison_is_inclusive(monkeypatch):
     coverages = iter([99.000, 98.999])
     monkeypatch.setattr(acquire, "_area_coverage", lambda *args: next(coverages))
     scenes = acquire.search_catalog(
-        acquire.load_aoi((0, 0, 1, 1)),
+        acquire.load_aoi(_aoi()),
         "2024-01-01",
         "2024-01-03",
         "token",
@@ -210,7 +208,7 @@ def test_full_period_preserves_catalog_order(monkeypatch):
         [_CatalogResponse([_scene(1, "2022-06-01"), _scene(2, "2020-06-01")])],
     )
     scenes = acquire.search_catalog(
-        acquire.load_aoi((0, 0, 1, 1)),
+        acquire.load_aoi(_aoi()),
         "2020-01-01",
         "2022-12-31",
         "token",
@@ -245,7 +243,7 @@ def test_download_uses_whole_day_and_most_recent(monkeypatch, tmp_path):
         or _DownloadResponse(),
     )
     acquire.download_index(
-        acquire.load_aoi((0, 0, 1, 1)),
+        acquire.load_aoi(_aoi()),
         "2024-01-02T10:20:30Z",
         "NDVI",
         tmp_path / "ndvi.tif",
@@ -289,7 +287,7 @@ def acquisition_mocks(monkeypatch):
 def test_acquisition_defaults_match_roptram(tmp_path, acquisition_mocks):
     search_calls, downloads = acquisition_mocks
     acquire.acquire_optram_inputs(
-        aoi=(34.0, 31.0, 34.1, 31.1),
+        aoi=_aoi(34.0, 31.0, 34.1, 31.1),
         from_date="2024-01-01",
         to_date="2024-01-03",
         output_dir=tmp_path,
@@ -315,7 +313,7 @@ def test_save_image_list_contains_filtered_scenes_before_downloads(
         return str(kwargs["output_path"])
     monkeypatch.setattr(acquire, "download_index", check_saved)
     acquire.acquire_optram_inputs(
-        aoi=(34.0, 31.0, 34.1, 31.1),
+        aoi=_aoi(34.0, 31.0, 34.1, 31.1),
         from_date="2024-01-01",
         to_date="2024-01-03",
         output_dir=tmp_path,

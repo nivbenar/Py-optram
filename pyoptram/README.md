@@ -15,15 +15,11 @@ It currently focuses on:
 pip install -e .
 ```
 
-Optional extras:
-
-```bash
-pip install -e .[geo]
-```
-
 ## Quick start
 
 ```python
+import geopandas as gpd
+
 from pyoptram import (
     acquire_optram_inputs,
     optram,
@@ -43,9 +39,12 @@ store_cdse_credentials(
 # Or initialize from a CSV with clientid,secret headers:
 # store_cdse_credentials_from_file("path/to/cdse_credentials.csv")
 
+# Read the GIS file in caller code, as with sf::st_read() in rOPTRAM.
+aoi = gpd.read_file("path/to/aoi.gpkg")
+
 # Thin counterpart to rOPTRAM::optram() for the supported CDSE path.
 rmse = optram(
-    aoi="path/to/aoi.geojson",
+    aoi=aoi,
     from_date="2024-01-01",
     to_date="2024-03-31",
     s2_output_dir="data/optram",
@@ -58,7 +57,7 @@ rmse = optram(
 # parity remains future work.
 
 acquired = acquire_optram_inputs(
-    aoi="path/to/aoi.geojson",  # GeoJSON, vector file, dict, or bbox tuple
+    aoi=aoi,
     from_date="2024-01-01",
     to_date="2024-03-31",
     output_dir="data/optram",
@@ -95,8 +94,10 @@ sm_paths = optram_calculate_soil_moisture(
 Soil-moisture calculations default to rOPTRAM's `porosity=0.4` and do not
 clip values. Pass `clip=True` explicitly when bounded output is desired.
 
-For acquisition, multi-feature AOIs are geometrically unioned before catalog
-search and download, matching rOPTRAM. Date ranges must satisfy
+AOIs are supplied as GeoPandas GeoDataFrames; callers read their own GIS files.
+For acquisition, multiple features are geometrically unioned before catalog
+search and download, while the original features remain available for VI-STR
+feature labeling, matching rOPTRAM. Date ranges must satisfy
 `to_date > from_date`. Acquisition resolution defaults to 10 metres and accepts
 10, 20, or 60 metres. Matching rOPTRAM and `CDSE::GetImage()`, metre resolution
 is converted to a CRS84 angular grid at the AOI latitude. Explicit `width` and
@@ -143,24 +144,10 @@ Explicit function arguments override the corresponding session option.
 The NDVI/STR table builder now supports quality masking, feature extraction, and size caps:
 
 ```python
-features_geojson = {
-    "type": "FeatureCollection",
-    "features": [
-        {
-            "type": "Feature",
-            "properties": {"ID": 1},
-            "geometry": {
-                "type": "Polygon",
-                "coordinates": [[[34.8, 31.4], [34.9, 31.4], [34.9, 31.5], [34.8, 31.5], [34.8, 31.4]]],
-            },
-        }
-    ],
-}
-
 df = optram_ndvi_str(
     ndvi_paths=acquired["NDVI"],
     str_paths=acquired["STR"],
-    features=features_geojson,        # optional feature labels for plotting
+    features=aoi,                     # original GeoDataFrame features
     feature_id_col="ID",              # creates Feature_ID column
     plot_colors="features",           # enables feature-ID preparation
     max_tbl_size=1_000_000,           # divided and sampled across STR files

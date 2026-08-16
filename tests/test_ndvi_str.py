@@ -1,3 +1,4 @@
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
@@ -28,15 +29,12 @@ def _write_vi_str_pair(tmp_path, ndvi=None, str_array=None):
     _write_single_band_tif(ndvi_path, ndvi)
     _write_single_band_tif(str_path, str_array)
     return ndvi_path, str_path
-def _feature_collection(properties, coordinates):
-    return {
-        "type": "FeatureCollection",
-        "features": [{
-            "type": "Feature",
-            "properties": properties,
-            "geometry": {"type": "Polygon", "coordinates": [coordinates]},
-        }],
-    }
+def _feature_geodataframe(properties, coordinates):
+    from shapely.geometry import Polygon
+
+    return gpd.GeoDataFrame(
+        [properties], geometry=[Polygon(coordinates)], crs="EPSG:4326"
+    )
 def test_optram_ndvi_str_builds_dataframe_and_filters_zero_str(tmp_path):
     ndvi_path = tmp_path / "NDVI_test.tif"
     str_path = tmp_path / "STR_test.tif"
@@ -67,7 +65,7 @@ def test_optram_ndvi_str_features_label_without_filtering_pixels(tmp_path):
     ndvi = np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32)
     str_array = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
     ndvi_path, str_path = _write_vi_str_pair(tmp_path, ndvi, str_array)
-    features_geojson = _feature_collection(
+    features = _feature_geodataframe(
         {"ID": 7},
         [[11.1, 18.1], [11.9, 18.1], [11.9, 19.9],
          [11.1, 19.9], [11.1, 18.1]],
@@ -75,7 +73,7 @@ def test_optram_ndvi_str_features_label_without_filtering_pixels(tmp_path):
     dataframe = optram_ndvi_str(
         [ndvi_path],
         [str_path],
-        features=features_geojson,
+        features=features,
         plot_colors="features",
     )
     assert "Feature_ID" in dataframe.columns
