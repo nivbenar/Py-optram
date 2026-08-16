@@ -1,223 +1,322 @@
 # pyoptram
 
-`pyoptram` is a Python implementation of core OPTRAM workflow steps inspired by [rOPTRAM](https://github.com/ropensci/rOPTRAM).
+`pyoptram` is a Python implementation of the core OPTRAM workflow, developed
+with behavioral parity with [rOPTRAM](https://github.com/ropensci/rOPTRAM) as
+the primary goal.
 
-It currently focuses on:
-- acquiring Sentinel-2 NDVI, SAVI, or MSAVI and STR inputs from Copernicus Data Space,
-- preparing paired NDVI-STR pixel tables,
-- fitting OPTRAM wet/dry edge coefficients,
-- calculating soil moisture rasters from fitted coefficients,
-- plotting VI-STR clouds.
+The current package can acquire Sentinel-2 inputs from the Copernicus Data
+Space Ecosystem (CDSE), construct a VI-STR pixel table, fit wet and dry
+trapezoid edges, and calculate soil-moisture rasters through the lower-level
+API. The high-level `optram()` wrapper follows the scope of
+`rOPTRAM::optram()`: it stops after fitting and returns RMSE; it does not
+calculate soil moisture.
 
-## Install (editable)
+## Installation
+
+For an editable installation from this repository:
 
 ```bash
 pip install -e .
 ```
 
-## Quick start
+GeoPandas is a runtime dependency because public acquisition and wrapper AOIs
+are `geopandas.GeoDataFrame` objects.
+
+## CDSE credentials
+
+Store CDSE credentials once before running acquisition:
 
 ```python
-import geopandas as gpd
+from pyoptram import store_cdse_credentials
 
-from pyoptram import (
-    acquire_optram_inputs,
-    optram,
-    optram_calculate_soil_moisture,
-    optram_ndvi_str,
-    optram_wetdry_coefficients,
-    store_cdse_credentials,
-    store_cdse_credentials_from_file,
-)
-
-# One-time setup. OAUTH_CLIENTID and OAUTH_SECRET may be used instead.
 store_cdse_credentials(
     client_id="YOUR_CDSE_CLIENT_ID",
     client_secret="YOUR_CDSE_CLIENT_SECRET",
 )
+```
 
-# Or initialize from a CSV with clientid,secret headers:
-# store_cdse_credentials_from_file("path/to/cdse_credentials.csv")
+They are saved in the platform-specific user credential location and reused by
+later Python or Jupyter sessions. A CSV-style file containing one
+`clientid,secret` row can be imported instead:
 
-# Read the GIS file in caller code, as with sf::st_read() in rOPTRAM.
+```python
+from pyoptram import store_cdse_credentials_from_file
+
+store_cdse_credentials_from_file("path/to/cdse_credentials.csv")
+```
+
+If `OAUTH_CLIENTID` and `OAUTH_SECRET` are set, calling
+`store_cdse_credentials()` without arguments imports and stores them. OAuth
+tokens are requested as needed and are not persisted by the package.
+
+## Quick start
+
+The caller reads the GIS file and passes a GeoDataFrame. Py-optram does not
+accept a filename, raw GeoJSON dictionary, or bounding-box tuple as the public
+AOI input.
+
+```python
+import geopandas as gpd
+
+from pyoptram import optram, optram_options
+
 aoi = gpd.read_file("path/to/aoi.gpkg")
 
-# Thin counterpart to rOPTRAM::optram() for the supported CDSE path.
+# Session options used by the child workflow functions.
+optram_options("veg_index", "NDVI", show_opts=False)
+optram_options("period", "full", show_opts=False)
+optram_options("scm_mask", True, show_opts=False)
+
 rmse = optram(
     aoi=aoi,
     from_date="2024-01-01",
     to_date="2024-03-31",
-    s2_output_dir="data/optram",
+    s2_output_dir="data/optram/s2",
     data_output_dir="data/optram/results",
 )
+```
 
-# optram() acquires VI/STR imagery, creates the VI-STR table, fits wet/dry
-# edges, and prints and returns RMSE. Matching rOPTRAM::optram(), it does not
-# calculate soil moisture. The current wrapper supports CDSE; openEO backend
-# parity remains future work.
+For the supported CDSE path, `optram()`:
+
+1. acquires VI and STR imagery;
+2. discovers the resulting files from their output directories;
+3. constructs `VI_STR_data.csv`;
+4. fits the wet and dry edges;
+5. prints and returns the wet/dry RMSE dataframe.
+
+Matching `rOPTRAM::optram()`, it does **not** calculate soil moisture. Soil
+moisture is available through the explicit lower-level API described below.
+
+## Workflow
+
+Acquisition accepts a non-empty Polygon or MultiPolygon GeoDataFrame with a
+defined CRS. Multiple features are transformed to EPSG:4326 and geometrically
+unioned for Catalog and Process requests. The original GeoDataFrame remains
+unchanged and is forwarded to VI-STR feature labeling.
+
+The CDSE workflow:
+
+- consumes all Catalog pages by default;
+- requires `to_date > from_date`;
+- applies strict cloud filtering (`cloud < max_cloud`);
+- uses case-sensitive tile substring matching;
+- calculates spherical S2 area coverage, rounds it to three decimals, and
+  retains coverage `>= area_cover`;
+- optionally applies rOPTRAM's seasonal date filter;
+- requests each selected acquisition's whole UTC day with
+  `mosaickingOrder="mostRecent"`;
+- defaults to 10-metre resolution and accepts 10, 20, or 60 metres.
+
+BOA is downloaded by default and can be disabled with the `only_vi_str` option.
+The current high-level wrapper supports the CDSE backend. rOPTRAM's openEO and
+full remote-backend behavior are not yet implemented.
+
+## Package options
+
+`optram_options()` manages the currently implemented subset of rOPTRAM-style
+session options. It is not a claim of complete rOPTRAM option-state parity.
+
+| Option | Default |
+|---|---:|
+| `veg_index` | `"NDVI"` |
+| `period` | `"full"` |
+| `max_cloud` | `12` |
+| `vi_step` | `0.005` |
+| `trapezoid_method` | `"linear"` |
+| `SWIR_band` | `11` |
+| `max_tbl_size` | `1_000_000` |
+| `rm.low.vi` | `False` |
+| `rm.hi.str` | `False` |
+| `plot_colors` | `"no"` |
+| `feature_col` | `"ID"` |
+| `edge_points` | `True` |
+| `only_vi_str` | `False` |
+| `tileid` | `None` |
+| `scm_mask` | `True` |
+| `overwrite` | `False` |
+| `save_img_list` | `False` |
+| `resolution` | `10` |
+| `area_cover` | `99.0` |
+| `porosity` | `0.4` |
+
+```python
+from pyoptram import optram_options
+
+current = optram_options(show_opts=False)
+optram_options("SWIR_band", 12, show_opts=False)
+optram_options(reset=True, show_opts=False)
+```
+
+Where a public child function exposes an option-backed argument, an explicit
+argument overrides the current session value.
+
+## Advanced usage
+
+The workflow stages can also be called individually:
+
+```python
+from pyoptram import (
+    acquire_optram_inputs,
+    optram_calculate_soil_moisture,
+    optram_ndvi_str,
+    optram_wetdry_coefficients,
+)
 
 acquired = acquire_optram_inputs(
     aoi=aoi,
     from_date="2024-01-01",
     to_date="2024-03-31",
-    output_dir="data/optram",
-    max_cloud=12,
-    area_cover=99.0,
-    period="full",
-    save_img_list=False,
-    only_vi_str=False,
-    resolution=10,
+    output_dir="data/optram/s2",
 )
 
-df = optram_ndvi_str(
+vi_str = optram_ndvi_str(
     ndvi_paths=acquired["NDVI"],
     str_paths=acquired["STR"],
-    rm_low_vi=False,
-    rm_hi_str=False,
+    output_csv="data/optram/results/VI_STR_data.csv",
+    features=aoi,
 )
 
-rmse_df, coeffs_df, edges_df = optram_wetdry_coefficients(
-    full_df=df,
-    method="linear",
+rmse, coefficients, edge_points = optram_wetdry_coefficients(
+    vi_str,
+    output_dir="data/optram/results",
     return_outputs=True,
 )
 
 sm_paths = optram_calculate_soil_moisture(
     vi_paths=acquired["NDVI"],
     str_paths=acquired["STR"],
-    coefficients=coeffs_df,
-    output_dir="data/optram/SM",
-    porosity=0.4,
+    coefficients=coefficients,
+    output_dir="data/optram/soil_moisture",
 )
 ```
 
-Soil-moisture calculations default to rOPTRAM's `porosity=0.4` and do not
-clip values. Pass `clip=True` explicitly when bounded output is desired.
+Soil moisture defaults to porosity `0.4` and is not clipped, matching
+rOPTRAM's default behavior. Pass `clip=True` explicitly to bound finite output
+to `[0, porosity]`.
 
-AOIs are supplied as GeoPandas GeoDataFrames; callers read their own GIS files.
-For acquisition, multiple features are geometrically unioned before catalog
-search and download, while the original features remain available for VI-STR
-feature labeling, matching rOPTRAM. Date ranges must satisfy
-`to_date > from_date`. Acquisition resolution defaults to 10 metres and accepts
-10, 20, or 60 metres. Matching rOPTRAM and `CDSE::GetImage()`, metre resolution
-is converted to a CRS84 angular grid at the AOI latitude. Explicit `width` and
-`height` remain available as Python-specific Process API overrides.
+### VI-STR filename pairing
 
-Catalog search consumes every CDSE page by default. Following rOPTRAM, scenes
-are filtered client-side in this order: strict cloud cover (`< max_cloud`),
-case-sensitive tile substring in the catalog `sourceId`, spherical AOI coverage
-rounded to three decimals (`>= area_cover`), and then the optional seasonal
-date filter. `period="seasonal"` repeats the month/day window from the supplied
-dates in each covered year and returns scenes in descending acquisition-date
-order. Process requests use each selected acquisition's whole UTC day with
-`mosaickingOrder="mostRecent"`.
+`optram_ndvi_str()` follows an STR-driven matching workflow. It processes STR
+paths in supplied order, removes `STR_` from each STR basename, and searches VI
+basenames using that identifier. For example,
+`STR_2022-11-11_T36RXV.tif` matches
+`NDVI_2022-11-11_T36RXV.tif`.
 
-When `save_img_list=True`, the post-filter scene list is written before any
-downloads to `image_list.json` as a GeoJSON FeatureCollection. rOPTRAM writes
-the corresponding R object as `image_list.rds`; genuine RDS writing is not
-available from Py-optram's approved runtime dependencies. Spherical coverage
-uses `s2rst` rather than planar Shapely. Tiny differences from R sf/S2 can occur
-at artificial floating-point rounding boundaries; practical parity after
-three-decimal rounding is the supported policy.
+- An STR file with no VI match is skipped.
+- An extra VI file with no STR match is ignored.
+- More than one VI match for an STR raises `ValueError`.
+- `max_tbl_size` is divided across the original number of STR inputs.
+- Individual AOI features can supply `Feature_ID` labels when
+  `plot_colors="features"`; they do not change the valid VI-STR population.
 
-## rOPTRAM-compatible package options
+## Vegetation indices and evalscripts
 
-Implemented workflow options use rOPTRAM names, defaults, and validation:
+CDSE acquisition supports these packaged Process API indices:
 
-```python
-from pyoptram import optram_options
+- NDVI
+- SAVI
+- MSAVI
 
-optram_options("vi_step", 0.01, show_opts=False)
-optram_options("plot_colors", "density", show_opts=False)
-current_options = optram_options(show_opts=False)
+The separate JavaScript files are packaged under `pyoptram/evalscripts/`:
+
+- `BOA.js`
+- `NDVI.js`, `NDVI_masked.js`
+- `SAVI.js`, `SAVI_masked.js`
+- `MSAVI.js`, `MSAVI_masked.js`
+- `STR11.js`, `STR12.js`
+
+The rOPTRAM option `scm_mask=True`—exposed as the acquisition argument
+`scl_mask=True`—selects the masked VI evalscript. SCL masking occurs inside
+that script and retains exactly classes `[2, 4, 5, 10]`. There is no separate
+SCL raster download or local SCL-masking stage in `optram_ndvi_str()`. STR is
+not directly SCL-masked; pixels with masked/non-finite VI values are removed by
+the normal VI-STR validity filter.
+
+The local `calculate_vi()` function additionally supports CI and BSCI, so its
+complete set is NDVI, SAVI, MSAVI, CI, and BSCI. CI and BSCI are local
+calculations only and cannot be requested through CDSE acquisition.
+
+## Outputs
+
+With the default acquisition options, the S2 output directory contains:
+
+```text
+s2/
+├── <veg_index>/*.tif
+├── STR/*.tif
+└── BOA/*.tif
 ```
 
-Explicit function arguments override the corresponding session option.
+`BOA/` is omitted when `only_vi_str=True`. When `save_img_list=True`, the
+post-filter Catalog is saved before downloads as `image_list.json`.
 
-## rOPTRAM-like `optram_ndvi_str` options
+The high-level wrapper writes these data/fitting artifacts:
 
-The NDVI/STR table builder now supports quality masking, feature extraction, and size caps:
-
-```python
-df = optram_ndvi_str(
-    ndvi_paths=acquired["NDVI"],
-    str_paths=acquired["STR"],
-    features=aoi,                     # original GeoDataFrame features
-    feature_id_col="ID",              # creates Feature_ID column
-    plot_colors="features",           # enables feature-ID preparation
-    max_tbl_size=1_000_000,           # divided and sampled across STR files
-    max_rows=250_000,                 # optional final downsample
-)
+```text
+results/
+├── VI_STR_data.csv
+├── trapezoid_points.csv
+├── wetdry_coefficients.csv
+└── wetdry_rmse.csv
 ```
 
-Each STR file is matched to a VI file by its filename identifier (for example,
-`STR_2022-11-11_T36RXV.tif` matches `NDVI_2022-11-11_T36RXV.tif`). Processing
-follows STR input order, unmatched STR files are skipped, and extra VI files
-are ignored, matching rOPTRAM. Use `output_csv` to persist the
-returned table to a caller-selected CSV path.
+Manual fitting with `export_roptram=True` additionally writes
+`coefficients_lin.csv` or `coefficients_pol.csv`. Manual soil-moisture
+calculation writes `SM_*.tif` files to its requested output directory.
 
-### VI–STR compatibility notes
+## rOPTRAM compatibility notes
 
-The remaining compatibility differences in this workflow are:
+Behavioral parity is the project priority, but full rOPTRAM feature parity is
+not yet claimed. Current documented differences include:
 
-- Python returns `X`, `Y`, and `NDVI` plus pixel/source provenance columns;
-  rOPTRAM's implementation returns lowercase `x`, `y`, and generic `VI`.
-- Python requires identical VI/STR grids. rOPTRAM joins raster values by
-  coordinates and can therefore create a partial intersection.
-- Python always filters non-finite values, VI outside `[-1, 1]`, and
-  non-positive STR. Its optional low-VI and high-STR filtering behavior is
-  unchanged.
-- Like rOPTRAM, `max_tbl_size` defaults to one million rows, is divided across
-  scenes, and randomly samples each oversized scene. Python's `max_rows` is an
-  additional optional final sample.
-- Python writes a caller-named CSV only when `output_csv` is supplied;
-  rOPTRAM always writes `VI_STR_data.rds` to its output directory.
-- Python returns an empty dataframe with a stable schema when matched scenes
-  contain no valid pixels. rOPTRAM generally skips empty scenes and uses
-  `NULL` for several empty-input cases.
-- Like rOPTRAM intends, feature input labels pixels for feature plot coloring
-  without changing the VI-STR population. Pixels outside features remain with
-  a missing `Feature_ID`.
+- Python's optional Process API `width`/`height` mode is an additional
+  compatibility path; the normal path uses rOPTRAM/CDSE-style resolution.
+- `save_img_list=True` writes a GeoJSON `image_list.json`; rOPTRAM writes an
+  RDS object.
+- Area coverage uses `s2rst` rather than R `sf`/S2. Tiny floating-point
+  differences can occur at artificial rounding boundaries; practical parity
+  is defined after three-decimal rounding.
+- Python's VI-STR table uses `X`, `Y`, and `NDVI` plus source/pixel provenance;
+  rOPTRAM uses lowercase `x`, `y`, and generic `VI` columns.
+- Python requires identical VI/STR grids. rOPTRAM joins values by coordinates
+  and may therefore produce a partial intersection.
+- Python filters non-finite values, VI outside `[-1, 1]`, and non-positive STR.
+- `max_tbl_size` follows the rOPTRAM per-STR-input sampling approach; Python's
+  `max_rows` is an additional optional final sample.
+- Python writes a caller-selected CSV only when `output_csv` is supplied;
+  rOPTRAM writes `VI_STR_data.rds`.
+- Python returns a stable empty dataframe when matched inputs contain no valid
+  pixels; rOPTRAM skips empty inputs and uses `NULL` in several such paths.
+- Feature labeling implements rOPTRAM's intended feature-color behavior
+  without reproducing its broken dataframe join.
+- Local `calculate_vi()` applies the approved single scaling pass and requires
+  only the bands used by the selected index, rather than reproducing
+  rOPTRAM's apparent double-scaling and 12-band requirements.
+- Native Python exponential coefficients use a consistent fitting/application
+  equation. Export/import of rOPTRAM exponential coefficient files is not
+  supported because the R export and application equations are inconsistent.
 
-Apparent rOPTRAM implementation bugs in feature joining, vegetation-index
-scaling, and exponential coefficient interpretation are not reproduced.
+## Tests
 
-## Available API
+Run the test suite with:
 
-- `get_cdse_token`
-- `acquire_optram_inputs`
-- `optram`
-- `calculate_vi`
-- `calculate_str`
-- `optram_calculate_str`
-- `optram_ndvi_str`
-- `optram_options`
-- `optram_wetdry_coefficients`
-- `calculate_soil_moisture`
-- `optram_calculate_soil_moisture`
-- `plot_vi_str_cloud`
+```bash
+python -m pytest
+```
 
-## Vegetation indices
-
-The public `calculate_vi` function implements the five indices available in
-rOPTRAM: NDVI, SAVI, MSAVI, CI, and BSCI. It uses rOPTRAM's one-based default
-band numbers and its reflectance scaling formula. CDSE acquisition supports
-NDVI, SAVI, and MSAVI, matching the evalscripts supplied by rOPTRAM; CI and
-BSCI are local calculations only. Masked CDSE products keep rOPTRAM's SCL
-classes 2, 4, 5, and 10. The rOPTRAM option `scm_mask=True` (the acquisition
-argument is `scl_mask=True`) selects this masked VI evalscript. STR is not
-SCL-masked directly; pixels whose VI is masked are removed when the VI-STR
-table is built.
-
-Two apparent rOPTRAM implementation errors are intentionally not reproduced.
-Scaling is applied once instead of twice, and `calculate_vi` requires only the
-bands used by the selected index instead of requiring every input stack to
-contain at least 12 bands.
+The current suite collects 56 tests covering options, AOI handling, CDSE scene
+selection and Process payloads, packaged evalscripts, VI-STR construction,
+vegetation-index and STR formulas, trapezoid fitting, the wrapper, and
+soil-moisture calculations.
 
 ## Current status
 
-This package is functional for coefficient generation, but still under active development toward fuller feature parity with rOPTRAM.
-
-Planned additions include:
-- a one-call `optram(...)` wrapper,
-- broader documentation and tests.
+- The core Sentinel-2/CDSE acquisition-to-RMSE workflow is implemented.
+- The public `optram()` wrapper is implemented and has run successfully
+  end-to-end against real CDSE data.
+- A Bushland validation produced RMSE wet `0.157336` and RMSE dry `0.024278`,
+  compared with rOPTRAM's `0.1573351` and `0.02427703`. This demonstrates close
+  agreement for that benchmark; it is not evidence of complete parity across
+  every rOPTRAM feature and input path.
+- Further numerical validation and remaining parity work are ongoing.
+- openEO and full remote-backend parity are not yet implemented.
