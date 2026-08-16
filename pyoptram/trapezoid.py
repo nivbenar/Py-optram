@@ -52,7 +52,7 @@ def _edge_points(
     """Extract wet and dry STR quantiles across VI intervals.
 
     The range is the rounded 2nd--99th VI percentile range. Each interval
-    must retain ``min_bin_count`` values, optionally after scaled-IQR outlier
+    must contain ``min_bin_count`` values before optional scaled-IQR outlier
     removal. Wet and dry points use the requested STR quantiles at the
     interval midpoint.
 
@@ -60,7 +60,7 @@ def _edge_points(
     produce usable points.
     """
     vi_min, vi_max = data[vi_col].quantile([0.02, 0.99]).round(2)
-    vi_series = np.arange(vi_min, vi_max, vi_step)
+    vi_series = np.arange(vi_min, vi_max + vi_step * 1e-10, vi_step)
     rows = []
 
     for vi_start in vi_series:
@@ -73,9 +73,6 @@ def _edge_points(
         if remove_outliers:
             group = _remove_interval_outliers(group, str_col)
 
-        if len(group) < min_bin_count:
-            continue
-
         rows.append(
             {
                 "VI": vi_start + vi_step / 2.0,
@@ -84,7 +81,7 @@ def _edge_points(
             }
         )
 
-    edges = pd.DataFrame(rows)
+    edges = pd.DataFrame(rows).dropna()
 
     if edges.empty:
         raise ValueError("No edge points found. Try a larger vi_step.")

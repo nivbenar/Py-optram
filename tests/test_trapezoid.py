@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 from pyoptram import optram_wetdry_coefficients, plot_vi_str_cloud
 from pyoptram.soil_moisture import _parse_coefficients
+from pyoptram.trapezoid import _edge_points
 def _fitting_dataframe():
     rng = np.random.default_rng(42)
     ndvi = rng.uniform(0.05, 0.85, 20_000)
@@ -34,6 +35,26 @@ def test_optram_wetdry_coefficients_uses_roptram_defaults():
     assert coeffs_df["method"].unique().tolist() == ["linear"]
     assert len(edges_df) > 100
     assert (rmse_df >= 0).all(axis=None)
+def test_edge_points_include_roptram_sequence_endpoint():
+    vi_starts = 0.08 + np.arange(43) * 0.005
+    dataframe = pd.DataFrame(
+        {
+            "NDVI": np.repeat(vi_starts + 0.0025, 20),
+            "STR": np.tile(np.linspace(1.0, 2.0, 20), 43),
+        }
+    )
+    edges = _edge_points(dataframe, "NDVI", "STR", 0.005, 0.95, 0.05, 20, False)
+    assert len(edges) == 43
+    assert edges.iloc[-1]["VI"] == pytest.approx(0.2925)
+def test_edge_points_do_not_recheck_count_after_outlier_removal():
+    dataframe = pd.DataFrame(
+        {
+            "NDVI": np.full(20, 0.1),
+            "STR": np.r_[np.linspace(1.0, 1.18, 19), 100.0],
+        }
+    )
+    edges = _edge_points(dataframe, "NDVI", "STR", 0.005, 0.95, 0.05, 20, True)
+    assert len(edges) == 1
 def test_exports_and_round_trips_roptram_linear_coefficients_exactly(tmp_path):
     _, coeffs_df, _ = optram_wetdry_coefficients(
         _fitting_dataframe(),
