@@ -37,7 +37,7 @@ def optram(
     s2_output_dir : path-like, optional
         Directory for acquired VI/STR imagery.
     data_output_dir : path-like, optional
-        Directory for the VI-STR CSV and wet/dry fitting outputs.
+        Directory for the VI-STR Parquet table and wet/dry fitting outputs.
 
     Returns
     -------
@@ -64,7 +64,7 @@ def optram(
     vi_str = optram_ndvi_str(
         vi_paths,
         str_paths,
-        output_csv=Path(data_output_dir) / "VI_STR_data.csv",
+        output_parquet=Path(data_output_dir) / "VI_STR_data.parquet",
         features=aoi,
     )
     rmse_df = optram_wetdry_coefficients(

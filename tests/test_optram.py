@@ -29,7 +29,7 @@ def test_optram_orchestrates_r_workflow(monkeypatch, tmp_path, capsys):
     result = wrapper.optram("aoi", "2024-01-01", "2024-01-03", s2_dir, data_dir)
 
     assert calls[0] == ("acquire", {"aoi": "aoi", "from_date": "2024-01-01", "to_date": "2024-01-03", "output_dir": s2_dir})
-    assert calls[1] == ("table", [vi_dir / "a.tif", vi_dir / "z.tif"], [str_dir / "b.tif", str_dir / "y.tif"], {"output_csv": data_dir / "VI_STR_data.csv", "features": "aoi"})
+    assert calls[1] == ("table", [vi_dir / "a.tif", vi_dir / "z.tif"], [str_dir / "b.tif", str_dir / "y.tif"], {"output_parquet": data_dir / "VI_STR_data.parquet", "features": "aoi"})
     assert calls[2] == ("fit", table, {"output_dir": data_dir})
     assert result is rmse
     assert "RMSE for fitted trapezoid:" in capsys.readouterr().out
@@ -47,5 +47,5 @@ def test_optram_uses_default_temp_directories(monkeypatch, tmp_path):
 
     assert wrapper.optram("aoi", "2024-01-01", "2024-01-03") is rmse
     assert calls[0][1]["output_dir"] == str(tmp_path)
-    assert calls[1] == ("table", ([], []), {"output_csv": tmp_path / "VI_STR_data.csv", "features": "aoi"})
+    assert calls[1] == ("table", ([], []), {"output_parquet": tmp_path / "VI_STR_data.parquet", "features": "aoi"})
     assert calls[2] == ("fit", ("table",), {"output_dir": str(tmp_path)})

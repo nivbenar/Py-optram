@@ -136,15 +136,17 @@ def test_optram_ndvi_str_parses_roptram_date_and_tile_filename(tmp_path):
     assert dataframe.loc[0, "TimestampUTC"] == pd.Timestamp("2022-11-11T00:00:00Z")
     assert dataframe.loc[0, "Month"] == 11
     assert dataframe.loc[0, "Tile"] == "36RXV"
-def test_optram_ndvi_str_writes_requested_csv_and_creates_parent(tmp_path):
+def test_optram_ndvi_str_writes_requested_parquet_and_creates_parent(tmp_path):
     ndvi_path = tmp_path / "NDVI_a.tif"
     str_path = tmp_path / "STR_a.tif"
-    output_csv = tmp_path / "tables" / "vi_str.csv"
+    output_parquet = tmp_path / "tables" / "vi_str.parquet"
     _write_single_band_tif(ndvi_path, np.array([[0.5]], dtype=np.float32))
     _write_single_band_tif(str_path, np.array([[2.0]], dtype=np.float32))
-    dataframe = optram_ndvi_str([ndvi_path], [str_path], output_csv=output_csv)
-    assert output_csv.is_file()
-    persisted = pd.read_csv(output_csv)
+    dataframe = optram_ndvi_str(
+        [ndvi_path], [str_path], output_parquet=output_parquet
+    )
+    assert output_parquet.is_file()
+    persisted = pd.read_parquet(output_parquet)
     assert list(persisted.columns) == list(dataframe.columns)
     np.testing.assert_allclose(persisted["NDVI"], dataframe["NDVI"])
     np.testing.assert_allclose(persisted["STR"], dataframe["STR"])

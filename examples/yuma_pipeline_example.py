@@ -35,7 +35,7 @@ print("STR files:", len(results["STR"]))
 df = op.optram_ndvi_str(
     results["NDVI"],
     results["STR"],
-    output_csv="outputs_yuma/VI_STR_data.csv",
+    output_parquet="outputs_yuma/VI_STR_data.parquet",
 )
 
 print(df[["NDVI", "STR"]].describe())

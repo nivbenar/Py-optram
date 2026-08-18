@@ -158,8 +158,9 @@ df = optram_ndvi_str(
 Each STR file is matched to a VI file by its filename identifier (for example,
 `STR_2022-11-11_T36RXV.tif` matches `NDVI_2022-11-11_T36RXV.tif`). Processing
 follows STR input order, unmatched STR files are skipped, and extra VI files
-are ignored, matching rOPTRAM. Use `output_csv` to persist the
-returned table to a caller-selected CSV path.
+are ignored, matching rOPTRAM. Use `output_parquet` to persist the
+returned table to a caller-selected Parquet path, which R can read with
+`arrow::read_parquet()`.
 
 ### VI–STR compatibility notes
 
@@ -175,8 +176,8 @@ The remaining compatibility differences in this workflow are:
 - Like rOPTRAM, `max_tbl_size` defaults to one million rows, is divided across
   scenes, and randomly samples each oversized scene. Python's `max_rows` is an
   additional optional final sample.
-- Python writes a caller-named CSV only when `output_csv` is supplied;
-  rOPTRAM always writes `VI_STR_data.rds` to its output directory.
+- Python writes a caller-named Parquet table only when `output_parquet` is
+  supplied; rOPTRAM always writes `VI_STR_data.rds` to its output directory.
 - Python returns an empty dataframe with a stable schema when matched scenes
   contain no valid pixels. rOPTRAM generally skips empty scenes and uses
   `NULL` for several empty-input cases.

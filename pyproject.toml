@@ -13,6 +13,7 @@ dependencies = [
     "matplotlib",
     "numpy",
     "pandas",
+    "pyarrow",
     "rasterio",
     "requests",
     "shapely",

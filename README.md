@@ -80,7 +80,7 @@ For the supported CDSE path, `optram()`:
 
 1. acquires VI and STR imagery;
 2. discovers the resulting files from their output directories;
-3. constructs `VI_STR_data.csv`;
+3. constructs `VI_STR_data.parquet`;
 4. fits the wet and dry edges;
 5. prints and returns the wet/dry RMSE dataframe.
 
@@ -172,7 +172,7 @@ acquired = acquire_optram_inputs(
 vi_str = optram_ndvi_str(
     ndvi_paths=acquired["NDVI"],
     str_paths=acquired["STR"],
-    output_csv="data/optram/results/VI_STR_data.csv",
+    output_parquet="data/optram/results/VI_STR_data.parquet",
     features=aoi,
 )
 
@@ -254,7 +254,7 @@ The high-level wrapper writes these data/fitting artifacts:
 
 ```text
 results/
-├── VI_STR_data.csv
+├── VI_STR_data.parquet
 ├── trapezoid_points.csv
 ├── wetdry_coefficients.csv
 └── wetdry_rmse.csv
@@ -283,8 +283,9 @@ not yet claimed. Current documented differences include:
 - Python filters non-finite values, VI outside `[-1, 1]`, and non-positive STR.
 - `max_tbl_size` follows the rOPTRAM per-STR-input sampling approach; Python's
   `max_rows` is an additional optional final sample.
-- Python writes a caller-selected CSV only when `output_csv` is supplied;
-  rOPTRAM writes `VI_STR_data.rds`.
+- Python writes a caller-selected Parquet table only when `output_parquet` is
+  supplied; rOPTRAM writes `VI_STR_data.rds`. R can read the Python table with
+  `arrow::read_parquet()`.
 - Python returns a stable empty dataframe when matched inputs contain no valid
   pixels; rOPTRAM skips empty inputs and uses `NULL` in several such paths.
 - Feature labeling implements rOPTRAM's intended feature-color behavior

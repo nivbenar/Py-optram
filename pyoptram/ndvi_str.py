@@ -146,7 +146,7 @@ def _remove_high_str(dataframe):
 def optram_ndvi_str(
     ndvi_paths,
     str_paths,
-    output_csv=None,
+    output_parquet=None,
     rm_low_vi=_UNSET,
     rm_hi_str=_UNSET,
     features=None,
@@ -163,8 +163,8 @@ def optram_ndvi_str(
     ndvi_paths, str_paths : path or list of paths
         VI and STR rasters matched from each STR basename, in STR input order.
         STR files without a matching VI are skipped.
-    output_csv : path, optional
-        If given, write the resulting dataframe to this CSV path.
+    output_parquet : path, optional
+        If given, write the resulting dataframe to this Parquet path.
     rm_low_vi : bool, optional
         Drop pixels with NDVI <= 0.005. Defaults to the ``rm.low.vi`` option,
         initially false.
@@ -208,9 +208,9 @@ def optram_ndvi_str(
     Finite VI values in [-1, 1] and positive STR values are retained before
     configured filters. ``max_tbl_size`` is divided evenly across STR files and
     oversized STR files are randomly sampled. Unlike rOPTRAM, output is written
-    only when ``output_csv`` is supplied, and the format is CSV rather than
-    RDS. Feature labeling implements rOPTRAM's intended behavior without its
-    broken dataframe join.
+    only when ``output_parquet`` is supplied, and the format is Parquet rather
+    than RDS. Feature labeling implements rOPTRAM's intended behavior without
+    its broken dataframe join.
     """
     rm_low_vi = _resolve_optram_option(
         "rm.low.vi", rm_low_vi, "rm_low_vi must be a boolean"
@@ -341,9 +341,13 @@ def optram_ndvi_str(
         dataframe = dataframe.sample(n=max_rows, random_state=random_state)
         dataframe = dataframe.reset_index(drop=True)
 
-    if output_csv is not None:
-        output_csv = Path(output_csv)
-        output_csv.parent.mkdir(parents=True, exist_ok=True)
-        dataframe.to_csv(output_csv, index=False)
+    if output_parquet is not None:
+        output_parquet = Path(output_parquet)
+        output_parquet.parent.mkdir(parents=True, exist_ok=True)
+        dataframe.to_parquet(
+            output_parquet,
+            engine="pyarrow",
+            index=False,
+        )
 
     return dataframe
