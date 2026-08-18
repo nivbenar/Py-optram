@@ -105,7 +105,7 @@ def _resolve_optram_option(name, value=_UNSET, error_message=None):
 
 
 ### Display, set, or reset rOPTRAM-compatible session options.
-def optram_options(opt_name=None, opt_value=_UNSET, show_opts=True, reset=False):
+def optram_options(opt_name=None, opt_value=_UNSET, show_opts=False, reset=False):
     """Display, update, or reset implemented rOPTRAM-compatible options.
 
     Parameters
@@ -115,7 +115,7 @@ def optram_options(opt_name=None, opt_value=_UNSET, show_opts=True, reset=False)
     opt_value : object, optional
         New value, validated according to ``opt_name``. The implemented
         defaults match rOPTRAM.
-    show_opts : bool, default True
+    show_opts : bool, default False
         Print every current option after applying the requested operation.
     reset : bool, default False
         Restore all implemented options to their rOPTRAM defaults first.

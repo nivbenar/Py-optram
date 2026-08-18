@@ -34,6 +34,18 @@ def test_optram_options_sets_and_resets_a_valid_value():
     assert optram_options(show_opts=False)["veg_index"] == "SAVI"
     optram_options(reset=True, show_opts=False)
     assert optram_options(show_opts=False)["veg_index"] == "NDVI"
+
+
+def test_optram_options_display_is_opt_in(capsys):
+    optram_options()
+    assert capsys.readouterr().out == ""
+
+    optram_options(show_opts=True)
+    output = capsys.readouterr().out
+    assert "veg_index = NDVI\n" in output
+    assert "porosity = 0.4\n" in output
+
+
 @pytest.mark.parametrize("period", ["full", "seasonal"])
 def test_optram_options_accepts_roptram_periods(period):
     optram_options("period", period, show_opts=False)
