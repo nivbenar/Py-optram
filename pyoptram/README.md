@@ -4,7 +4,7 @@
 
 It currently focuses on:
 - acquiring Sentinel-2 NDVI and STR inputs from Copernicus Data Space,
-- preparing paired NDVI-STR pixel tables,
+- preparing paired VI-STR pixel tables,
 - fitting OPTRAM wet/dry edge coefficients,
 - calculating soil moisture rasters from fitted coefficients,
 - plotting VI-STR clouds.
@@ -141,7 +141,7 @@ Explicit function arguments override the corresponding session option.
 
 ## rOPTRAM-like `optram_ndvi_str` options
 
-The NDVI/STR table builder now supports quality masking, feature extraction, and size caps:
+The VI-STR table builder supports quality masking, feature extraction, and size caps:
 
 ```python
 df = optram_ndvi_str(
@@ -166,8 +166,9 @@ returned table to a caller-selected Parquet path, which R can read with
 
 The remaining compatibility differences in this workflow are:
 
-- Python returns `X`, `Y`, and `NDVI` plus pixel/source provenance columns;
-  rOPTRAM's implementation returns lowercase `x`, `y`, and generic `VI`.
+- The generic `VI` column contains the selected NDVI, SAVI, or MSAVI values.
+  Python additionally returns `X`, `Y`, and pixel/source provenance columns;
+  rOPTRAM uses lowercase `x` and `y`.
 - Python requires identical VI/STR grids. rOPTRAM joins raster values by
   coordinates and can therefore create a partial intersection.
 - Python always filters non-finite values, VI outside `[-1, 1]`, and

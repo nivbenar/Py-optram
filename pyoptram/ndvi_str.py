@@ -20,7 +20,7 @@ _BASE_COLUMNS = [
     "TimestampUTC",
     "Month",
     "Tile",
-    "NDVI",
+    "VI",
     "STR",
     "source_index",
     "row",
@@ -156,7 +156,7 @@ def optram_ndvi_str(
     max_rows=None,
     random_state=None,
 ):
-    """Build a dataframe of paired NDVI and STR pixel values.
+    """Build a dataframe of paired VI and STR pixel values.
 
     Parameters
     ----------
@@ -166,7 +166,7 @@ def optram_ndvi_str(
     output_parquet : path, optional
         If given, write the resulting dataframe to this Parquet path.
     rm_low_vi : bool, optional
-        Drop pixels with NDVI <= 0.005. Defaults to the ``rm.low.vi`` option,
+        Drop pixels with VI <= 0.005. Defaults to the ``rm.low.vi`` option,
         initially false.
     rm_hi_str : bool, optional
         Drop STR values at or above Q3 + 1.5 * IQR. Defaults to the
@@ -311,7 +311,7 @@ def optram_ndvi_str(
             "TimestampUTC": timestamp,
             "Month": month,
             "Tile": tile,
-            "NDVI": ndvi[rows, cols],
+            "VI": ndvi[rows, cols],
             "STR": str_array[rows, cols],
             "source_index": source_index,
             "row": rows,

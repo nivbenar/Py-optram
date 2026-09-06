@@ -179,7 +179,7 @@ def _roptram_coefficients(coeffs_df, method):
 def optram_wetdry_coefficients(
     full_df,
     output_dir=None,
-    vi_col="NDVI",
+    vi_col="VI",
     str_col="STR",
     method=_UNSET,
     vi_step=_UNSET,
@@ -200,7 +200,7 @@ def optram_wetdry_coefficients(
     output_dir : path-like, optional
         Directory for CSV artifacts. No files are written when omitted.
     vi_col, str_col : str
-        Input columns, defaulting to ``"NDVI"`` and ``"STR"``.
+        Input columns, defaulting to ``"VI"`` and ``"STR"``.
     method : {"linear", "exponential", "polynomial"}, optional
         Edge model. Defaults to ``trapezoid_method``, initially ``"linear"``.
     vi_step : float, optional
@@ -305,7 +305,7 @@ def optram_wetdry_coefficients(
 def plot_vi_str_cloud(
     full_df,
     edges_df,
-    vi_col="NDVI",
+    vi_col="VI",
     str_col="STR",
     edge_points=_UNSET,
     plot_colors=_UNSET,
@@ -320,7 +320,7 @@ def plot_vi_str_cloud(
     full_df, edges_df : pandas.DataFrame
         Pixel values and fitted edge points.
     vi_col, str_col : str
-        Plot columns, defaulting to ``"NDVI"`` and ``"STR"``.
+        Plot columns, defaulting to ``"VI"`` and ``"STR"``.
     edge_points : bool, optional
         Show quantile points. Defaults to ``edge_points``, initially true.
     plot_colors : str, optional

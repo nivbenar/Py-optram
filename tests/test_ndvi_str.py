@@ -51,7 +51,7 @@ def test_optram_ndvi_str_builds_dataframe_and_filters_zero_str(tmp_path):
         "TimestampUTC",
         "Month",
         "Tile",
-        "NDVI",
+        "VI",
         "STR",
         "source_index",
         "row",
@@ -59,7 +59,7 @@ def test_optram_ndvi_str_builds_dataframe_and_filters_zero_str(tmp_path):
         "ndvi_path",
         "str_path",
     ]
-    np.testing.assert_allclose(dataframe["NDVI"].to_numpy(), [0.2, 0.6, 0.8])
+    np.testing.assert_allclose(dataframe["VI"].to_numpy(), [0.2, 0.6, 0.8])
     np.testing.assert_allclose(dataframe["STR"].to_numpy(), [1.0, 2.0, 3.0])
 def test_optram_ndvi_str_features_label_without_filtering_pixels(tmp_path):
     ndvi = np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32)
@@ -116,7 +116,7 @@ def test_optram_ndvi_str_matches_vi_files_in_str_order(tmp_path):
         ndvi_paths=[ndvi_a, ndvi_b, ndvi_extra],
         str_paths=[str_b, str_unmatched, str_a],
     )
-    np.testing.assert_allclose(dataframe["NDVI"], [0.9, 0.1])
+    np.testing.assert_allclose(dataframe["VI"], [0.9, 0.1])
     np.testing.assert_allclose(dataframe["STR"], [2.0, 1.0])
 def test_optram_ndvi_str_rejects_multiple_vi_matches(tmp_path):
     str_path = tmp_path / "STR_a.tif"
@@ -148,5 +148,19 @@ def test_optram_ndvi_str_writes_requested_parquet_and_creates_parent(tmp_path):
     assert output_parquet.is_file()
     persisted = pd.read_parquet(output_parquet)
     assert list(persisted.columns) == list(dataframe.columns)
-    np.testing.assert_allclose(persisted["NDVI"], dataframe["NDVI"])
+    np.testing.assert_allclose(persisted["VI"], dataframe["VI"])
     np.testing.assert_allclose(persisted["STR"], dataframe["STR"])
+
+
+def test_all_acquired_indices_use_generic_vi_column(tmp_path):
+    for index_name in ("NDVI", "SAVI", "MSAVI"):
+        index_dir = tmp_path / index_name
+        index_dir.mkdir()
+        vi_path = index_dir / f"{index_name}_test.tif"
+        str_path = index_dir / "STR_test.tif"
+        _write_single_band_tif(vi_path, np.array([[0.5]], dtype=np.float32))
+        _write_single_band_tif(str_path, np.array([[2.0]], dtype=np.float32))
+
+        dataframe = optram_ndvi_str([vi_path], [str_path])
+        assert "VI" in dataframe.columns
+        assert "NDVI" not in dataframe.columns

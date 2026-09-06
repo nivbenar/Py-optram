@@ -38,7 +38,7 @@ df = op.optram_ndvi_str(
     output_parquet="outputs_yuma/VI_STR_data.parquet",
 )
 
-print(df[["NDVI", "STR"]].describe())
+print(df[["VI", "STR"]].describe())
 print("Zero STR rows:", (df["STR"] == 0).sum())
 
 

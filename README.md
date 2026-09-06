@@ -276,8 +276,9 @@ not yet claimed. Current documented differences include:
 - Area coverage uses `s2rst` rather than R `sf`/S2. Tiny floating-point
   differences can occur at artificial rounding boundaries; practical parity
   is defined after three-decimal rounding.
-- Python's VI-STR table uses `X`, `Y`, and `NDVI` plus source/pixel provenance;
-  rOPTRAM uses lowercase `x`, `y`, and generic `VI` columns.
+- Like rOPTRAM, Python's VI-STR table uses the generic `VI` column for NDVI,
+  SAVI, or MSAVI values. Python uses `X`, `Y` and adds source/pixel provenance,
+  while rOPTRAM uses lowercase `x`, `y`.
 - Python requires identical VI/STR grids. rOPTRAM joins values by coordinates
   and may therefore produce a partial intersection.
 - Python filters non-finite values, VI outside `[-1, 1]`, and non-positive STR.

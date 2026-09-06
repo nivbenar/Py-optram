@@ -11,7 +11,7 @@ def _fitting_dataframe():
     dry_line = 0.2 + 0.5 * ndvi
     position = rng.uniform(0.0, 1.0, size=ndvi.size)
     str_values = dry_line + position * (wet_line - dry_line)
-    return pd.DataFrame({"NDVI": ndvi, "STR": str_values})
+    return pd.DataFrame({"VI": ndvi, "STR": str_values})
 def test_optram_wetdry_coefficients_returns_rmse_coefficients_and_edges():
     dataframe = _fitting_dataframe()
     rmse_df, coeffs_df, edges_df = optram_wetdry_coefficients(
@@ -39,21 +39,21 @@ def test_edge_points_include_roptram_sequence_endpoint():
     vi_starts = 0.08 + np.arange(43) * 0.005
     dataframe = pd.DataFrame(
         {
-            "NDVI": np.repeat(vi_starts + 0.0025, 20),
+            "VI": np.repeat(vi_starts + 0.0025, 20),
             "STR": np.tile(np.linspace(1.0, 2.0, 20), 43),
         }
     )
-    edges = _edge_points(dataframe, "NDVI", "STR", 0.005, 0.95, 0.05, 20, False)
+    edges = _edge_points(dataframe, "VI", "STR", 0.005, 0.95, 0.05, 20, False)
     assert len(edges) == 43
     assert edges.iloc[-1]["VI"] == pytest.approx(0.2925)
 def test_edge_points_do_not_recheck_count_after_outlier_removal():
     dataframe = pd.DataFrame(
         {
-            "NDVI": np.full(20, 0.1),
+            "VI": np.full(20, 0.1),
             "STR": np.r_[np.linspace(1.0, 1.18, 19), 100.0],
         }
     )
-    edges = _edge_points(dataframe, "NDVI", "STR", 0.005, 0.95, 0.05, 20, True)
+    edges = _edge_points(dataframe, "VI", "STR", 0.005, 0.95, 0.05, 20, True)
     assert len(edges) == 1
 def test_exports_and_round_trips_roptram_linear_coefficients_exactly(tmp_path):
     _, coeffs_df, _ = optram_wetdry_coefficients(
@@ -121,7 +121,7 @@ def test_exports_and_round_trips_roptram_polynomial_coefficients_exactly(tmp_pat
         "beta_2": wet["beta_2"],
     }
 def test_plot_defaults_show_edge_points_like_roptram():
-    full_df = pd.DataFrame({"NDVI": [0.1, 0.2], "STR": [1.0, 1.2]})
+    full_df = pd.DataFrame({"VI": [0.1, 0.2], "STR": [1.0, 1.2]})
     edges_df = pd.DataFrame(
         {
             "VI": [0.1, 0.2],
