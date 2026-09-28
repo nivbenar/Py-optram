@@ -1,6 +1,6 @@
 ### Yuma OPTRAM Pipeline Example
 # Demonstrates acquisition, VI-STR table assembly, trapezoid fitting, and
-# plotting for a Yuma-area bounding box.
+# plotting for a Yuma-area GeoDataFrame.
 
 """
 Notebook-style pyOPTRAM test workflow saved as a Python script.
@@ -8,13 +8,21 @@ Notebook-style pyOPTRAM test workflow saved as a Python script.
 Run this after storing credentials once with store_cdse_credentials().
 """
 
+import geopandas as gpd
 import matplotlib.pyplot as plt
 import pyoptram as op
+from shapely.geometry import box
+
+
+aoi = gpd.GeoDataFrame(
+    geometry=[box(-114.75, 32.55, -114.45, 32.75)],
+    crs="EPSG:4326",
+)
 
 
 ### Download paired NDVI and STR rasters
 results = op.acquire_optram_inputs(
-    aoi=[-114.75, 32.55, -114.45, 32.75],
+    aoi=aoi,
     from_date="2025-12-01",
     to_date="2026-03-15",
     output_dir="outputs_yuma",

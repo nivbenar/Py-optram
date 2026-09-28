@@ -207,6 +207,4 @@ scaling, and exponential coefficient interpretation are not reproduced.
 
 This package is functional for coefficient generation, but still under active development toward fuller feature parity with rOPTRAM.
 
-Planned additions include:
-- a one-call `optram(...)` wrapper,
-- broader documentation and tests.
+Planned additions include broader documentation and tests.

@@ -306,7 +306,7 @@ Run the test suite with:
 python -m pytest
 ```
 
-The current suite collects 56 tests covering options, AOI handling, CDSE scene
+The current suite collects 58 tests covering options, AOI handling, CDSE scene
 selection and Process payloads, packaged evalscripts, VI-STR construction,
 vegetation-index and STR formulas, trapezoid fitting, the wrapper, and
 soil-moisture calculations.
