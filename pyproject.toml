@@ -7,7 +7,7 @@ name = "pyoptram"
 version = "0.1.0"
 description = "Python implementation of the OPTRAM soil moisture model"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "geopandas",
     "matplotlib",
