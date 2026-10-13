@@ -19,16 +19,16 @@ def _write_single_band_tif(path, array, dtype="float32"):
     }
     with rasterio.open(path, "w", **profile) as dst:
         dst.write(array.astype(dtype), 1)
-def _write_vi_str_pair(tmp_path, ndvi=None, str_array=None):
-    ndvi_path = tmp_path / "NDVI_test.tif"
+def _write_vi_str_pair(tmp_path, vi=None, str_array=None):
+    vi_path = tmp_path / "NDVI_test.tif"
     str_path = tmp_path / "STR_test.tif"
-    if ndvi is None:
-        ndvi = np.full((2, 2), 0.5, dtype=np.float32)
+    if vi is None:
+        vi = np.full((2, 2), 0.5, dtype=np.float32)
     if str_array is None:
         str_array = np.full((2, 2), 2.0, dtype=np.float32)
-    _write_single_band_tif(ndvi_path, ndvi)
+    _write_single_band_tif(vi_path, vi)
     _write_single_band_tif(str_path, str_array)
-    return ndvi_path, str_path
+    return vi_path, str_path
 def _feature_geodataframe(properties, coordinates):
     from shapely.geometry import Polygon
 
@@ -36,13 +36,13 @@ def _feature_geodataframe(properties, coordinates):
         [properties], geometry=[Polygon(coordinates)], crs="EPSG:4326"
     )
 def test_optram_ndvi_str_builds_dataframe_and_filters_zero_str(tmp_path):
-    ndvi_path = tmp_path / "NDVI_test.tif"
+    vi_path = tmp_path / "NDVI_test.tif"
     str_path = tmp_path / "STR_test.tif"
-    ndvi = np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32)
+    vi = np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32)
     str_array = np.array([[1.0, 0.0], [2.0, 3.0]], dtype=np.float32)
-    _write_single_band_tif(ndvi_path, ndvi)
+    _write_single_band_tif(vi_path, vi)
     _write_single_band_tif(str_path, str_array)
-    dataframe = optram_ndvi_str([ndvi_path], [str_path])
+    dataframe = optram_ndvi_str([vi_path], [str_path])
     assert len(dataframe) == 3
     assert (dataframe["STR"] > 0).all()
     assert list(dataframe.columns) == [
@@ -62,16 +62,16 @@ def test_optram_ndvi_str_builds_dataframe_and_filters_zero_str(tmp_path):
     np.testing.assert_allclose(dataframe["VI"].to_numpy(), [0.2, 0.6, 0.8])
     np.testing.assert_allclose(dataframe["STR"].to_numpy(), [1.0, 2.0, 3.0])
 def test_optram_ndvi_str_features_label_without_filtering_pixels(tmp_path):
-    ndvi = np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32)
+    vi = np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32)
     str_array = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
-    ndvi_path, str_path = _write_vi_str_pair(tmp_path, ndvi, str_array)
+    vi_path, str_path = _write_vi_str_pair(tmp_path, vi, str_array)
     features = _feature_geodataframe(
         {"ID": 7},
         [[11.1, 18.1], [11.9, 18.1], [11.9, 19.9],
          [11.1, 19.9], [11.1, 18.1]],
     )
     dataframe = optram_ndvi_str(
-        [ndvi_path],
+        [vi_path],
         [str_path],
         features=features,
         plot_colors="features",
@@ -81,18 +81,18 @@ def test_optram_ndvi_str_features_label_without_filtering_pixels(tmp_path):
     assert (dataframe.loc[dataframe["col"] == 1, "Feature_ID"] == 7).all()
     assert dataframe.loc[dataframe["col"] == 0, "Feature_ID"].isna().all()
 def test_optram_ndvi_str_max_tbl_size_samples_each_scene_evenly(tmp_path):
-    ndvi_path_1 = tmp_path / "NDVI_a.tif"
+    vi_path_1 = tmp_path / "NDVI_a.tif"
     str_path_1 = tmp_path / "STR_a.tif"
-    ndvi_path_2 = tmp_path / "NDVI_b.tif"
+    vi_path_2 = tmp_path / "NDVI_b.tif"
     str_path_2 = tmp_path / "STR_b.tif"
-    ndvi = np.full((100, 120), 0.5, dtype=np.float32)
+    vi = np.full((100, 120), 0.5, dtype=np.float32)
     str_array = np.full((100, 120), 2.0, dtype=np.float32)
-    _write_single_band_tif(ndvi_path_1, ndvi)
+    _write_single_band_tif(vi_path_1, vi)
     _write_single_band_tif(str_path_1, str_array)
-    _write_single_band_tif(ndvi_path_2, ndvi)
+    _write_single_band_tif(vi_path_2, vi)
     _write_single_band_tif(str_path_2, str_array)
     dataframe = optram_ndvi_str(
-        [ndvi_path_1, ndvi_path_2],
+        [vi_path_1, vi_path_2],
         [str_path_1, str_path_2],
         max_tbl_size=10_000,
         random_state=0,
@@ -137,13 +137,13 @@ def test_optram_ndvi_str_parses_roptram_date_and_tile_filename(tmp_path):
     assert dataframe.loc[0, "Month"] == 11
     assert dataframe.loc[0, "Tile"] == "36RXV"
 def test_optram_ndvi_str_writes_requested_parquet_and_creates_parent(tmp_path):
-    ndvi_path = tmp_path / "NDVI_a.tif"
+    vi_path = tmp_path / "NDVI_a.tif"
     str_path = tmp_path / "STR_a.tif"
     output_parquet = tmp_path / "tables" / "vi_str.parquet"
-    _write_single_band_tif(ndvi_path, np.array([[0.5]], dtype=np.float32))
+    _write_single_band_tif(vi_path, np.array([[0.5]], dtype=np.float32))
     _write_single_band_tif(str_path, np.array([[2.0]], dtype=np.float32))
     dataframe = optram_ndvi_str(
-        [ndvi_path], [str_path], output_parquet=output_parquet
+        [vi_path], [str_path], output_parquet=output_parquet
     )
     assert output_parquet.is_file()
     persisted = pd.read_parquet(output_parquet)

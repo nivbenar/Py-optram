@@ -6,12 +6,12 @@ from pyoptram.soil_moisture import _parse_coefficients
 from pyoptram.trapezoid import _edge_points
 def _fitting_dataframe():
     rng = np.random.default_rng(42)
-    ndvi = rng.uniform(0.05, 0.85, 20_000)
-    wet_line = 0.8 + 2.0 * ndvi
-    dry_line = 0.2 + 0.5 * ndvi
-    position = rng.uniform(0.0, 1.0, size=ndvi.size)
+    vi = rng.uniform(0.05, 0.85, 20_000)
+    wet_line = 0.8 + 2.0 * vi
+    dry_line = 0.2 + 0.5 * vi
+    position = rng.uniform(0.0, 1.0, size=vi.size)
     str_values = dry_line + position * (wet_line - dry_line)
-    return pd.DataFrame({"VI": ndvi, "STR": str_values})
+    return pd.DataFrame({"VI": vi, "STR": str_values})
 def test_optram_wetdry_coefficients_returns_rmse_coefficients_and_edges():
     dataframe = _fitting_dataframe()
     rmse_df, coeffs_df, edges_df = optram_wetdry_coefficients(

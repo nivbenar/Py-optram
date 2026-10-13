@@ -233,7 +233,7 @@ def optram_ndvi_str(
     )
 
     # Prepare input paths.
-    ndvi_path_list = _as_path_list(ndvi_paths, "ndvi_paths")
+    vi_path_list = _as_path_list(ndvi_paths, "ndvi_paths")
     str_path_list = _as_path_list(str_paths, "str_paths")
 
     if max_rows is not None and max_rows < 1:
@@ -253,7 +253,7 @@ def optram_ndvi_str(
     for source_index, str_path in enumerate(str_path_list):
         unique_str = str_path.name.replace("STR_", "")
         vi_matches = [
-            path for path in ndvi_path_list if re.search(unique_str, path.name)
+            path for path in vi_path_list if re.search(unique_str, path.name)
         ]
         if not vi_matches:
             continue
@@ -261,34 +261,34 @@ def optram_ndvi_str(
             raise ValueError(
                 f"More than one VI file matches STR file {str_path.name!r}"
             )
-        ndvi_path = vi_matches[0]
-        # Read and validate one NDVI/STR raster pair.
-        ndvi, ndvi_profile = _read_band(ndvi_path)
+        vi_path = vi_matches[0]
+        # Read and validate one VI/STR raster pair.
+        vi, vi_profile = _read_band(vi_path)
         str_array, str_profile = _read_band(str_path)
-        _check_same_grid(ndvi_profile, str_profile, ndvi_path, str_path)
+        _check_same_grid(vi_profile, str_profile, vi_path, str_path)
 
         # Keep only usable OPTRAM pixels.
         valid = (
-            np.isfinite(ndvi)
+            np.isfinite(vi)
             & np.isfinite(str_array)
-            & (ndvi >= -1)
-            & (ndvi <= 1)
+            & (vi >= -1)
+            & (vi <= 1)
             & (str_array > 0)
         )
 
         if rm_low_vi:
-            valid &= ndvi > 0.005
+            valid &= vi > 0.005
 
         feature_burn = None
         if feature_list is not None:
-            cache_key = (ndvi_profile["transform"], ndvi_profile["shape"])
+            cache_key = (vi_profile["transform"], vi_profile["shape"])
             feature_burn = rasterized_features_cache.get(cache_key)
             if feature_burn is None:
                 feature_burn = _rasterize_features(
                     feature_list,
                     feature_id_col,
-                    ndvi_profile["transform"],
-                    ndvi_profile["shape"],
+                    vi_profile["transform"],
+                    vi_profile["shape"],
                 )
                 rasterized_features_cache[cache_key] = feature_burn
 
@@ -302,8 +302,8 @@ def optram_ndvi_str(
             cols = cols[selected]
 
         # Convert raster pixels to dataframe rows.
-        xs, ys = xy(ndvi_profile["transform"], rows, cols)
-        timestamp, month, tile = _file_metadata(ndvi_path)
+        xs, ys = xy(vi_profile["transform"], rows, cols)
+        timestamp, month, tile = _file_metadata(vi_path)
 
         row_data = {
             "X": xs,
@@ -311,12 +311,12 @@ def optram_ndvi_str(
             "TimestampUTC": timestamp,
             "Month": month,
             "Tile": tile,
-            "VI": ndvi[rows, cols],
+            "VI": vi[rows, cols],
             "STR": str_array[rows, cols],
             "source_index": source_index,
             "row": rows,
             "col": cols,
-            "ndvi_path": str(ndvi_path),
+            "ndvi_path": str(vi_path),
             "str_path": str(str_path),
         }
 
