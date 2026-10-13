@@ -58,7 +58,12 @@ def process_boa_file(tif_path, str_dir, swir_band):
             )
 
         profile = src.profile.copy()
-        swir = src.read(swir_band).astype(np.float32) / 10000.0
+        swir = (
+            src.read(swir_band, masked=True)
+            .astype(np.float32)
+            .filled(np.nan)
+            / 10000.0
+        )
         str_arr = calculate_str(swir).astype(np.float32)
 
         profile.update(dtype="float32", count=1, nodata=np.nan)
