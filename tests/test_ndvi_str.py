@@ -61,6 +61,15 @@ def test_optram_ndvi_str_builds_dataframe_and_filters_zero_str(tmp_path):
     ]
     np.testing.assert_allclose(dataframe["VI"].to_numpy(), [0.2, 0.6, 0.8])
     np.testing.assert_allclose(dataframe["STR"].to_numpy(), [1.0, 2.0, 3.0])
+
+
+def test_optram_ndvi_str_still_applies_rm_low_vi_upstream(tmp_path):
+    vi = np.array([[0.0, 0.005], [0.006, 0.5]], dtype=np.float32)
+    vi_path, str_path = _write_vi_str_pair(tmp_path, vi, np.ones((2, 2)))
+
+    dataframe = optram_ndvi_str([vi_path], [str_path], rm_low_vi=True)
+
+    np.testing.assert_allclose(dataframe["VI"].to_numpy(), [0.006, 0.5])
 def test_optram_ndvi_str_features_label_without_filtering_pixels(tmp_path):
     vi = np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32)
     str_array = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)

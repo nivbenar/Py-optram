@@ -55,7 +55,6 @@ rmse_df, coeffs_df, edges_df = op.optram_wetdry_coefficients(
     df,
     output_dir="outputs_yuma",
     method="linear",
-    rm_low_vi=True,
     return_outputs=True,
 )
 

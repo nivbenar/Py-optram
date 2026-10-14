@@ -12,14 +12,11 @@ from .options import _UNSET, _resolve_optram_option
 
 ### Edge-point preparation
 
-### Keep finite VI/STR values and optionally remove very low VI values.
-def _clean_vi_str(dataframe, vi_col, str_col, rm_low_vi):
+### Keep finite VI/STR values and positive STR values.
+def _clean_vi_str(dataframe, vi_col, str_col):
     data = dataframe[[vi_col, str_col]].dropna().copy()
     data = data[np.isfinite(data[vi_col]) & np.isfinite(data[str_col])]
     data = data[data[str_col] > 0]
-
-    if rm_low_vi:
-        data = data[data[vi_col] > 0.005]
 
     if data.empty:
         raise ValueError("No valid VI-STR rows to fit")
@@ -186,7 +183,6 @@ def optram_wetdry_coefficients(
     wet_quantile=0.95,
     dry_quantile=0.05,
     min_bin_count=20,
-    rm_low_vi=_UNSET,
     remove_outliers=True,
     return_outputs=False,
     export_roptram=False,
@@ -209,8 +205,6 @@ def optram_wetdry_coefficients(
         Interval STR quantiles, defaulting to 0.95 and 0.05.
     min_bin_count : int, default 20
         Minimum usable pixels in each interval.
-    rm_low_vi : bool, optional
-        Remove VI <= 0.005; defaults to the ``rm.low.vi`` option.
     remove_outliers : bool, default True
         Apply rOPTRAM's scaled-IQR rule within each interval.
     return_outputs : bool, default False
@@ -249,11 +243,7 @@ def optram_wetdry_coefficients(
         vi_step,
         "vi_step must be numeric and greater than 0 and at most 0.02",
     )
-    rm_low_vi = _resolve_optram_option(
-        "rm.low.vi", rm_low_vi, "rm_low_vi must be a boolean"
-    )
-
-    data = _clean_vi_str(full_df, vi_col, str_col, rm_low_vi)
+    data = _clean_vi_str(full_df, vi_col, str_col)
     edges_df = _edge_points(
         data,
         vi_col,

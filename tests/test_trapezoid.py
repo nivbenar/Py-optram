@@ -1,3 +1,5 @@
+import inspect
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -35,6 +37,29 @@ def test_optram_wetdry_coefficients_uses_roptram_defaults():
     assert coeffs_df["method"].unique().tolist() == ["linear"]
     assert len(edges_df) > 100
     assert (rmse_df >= 0).all(axis=None)
+
+
+def test_wetdry_fitting_accepts_low_vi_without_exposing_rm_low_vi():
+    assert "rm_low_vi" not in inspect.signature(
+        optram_wetdry_coefficients
+    ).parameters
+
+    vi = np.repeat([0.0025, 0.0075, 0.0125, 0.0175], 20)
+    dataframe = pd.DataFrame(
+        {
+            "VI": vi,
+            "STR": np.tile(np.linspace(1.0, 2.0, 20), 4),
+        }
+    )
+
+    _, _, edges = optram_wetdry_coefficients(
+        dataframe,
+        vi_step=0.005,
+        min_bin_count=20,
+        remove_outliers=False,
+        return_outputs=True,
+    )
+    assert edges.iloc[0]["VI"] == pytest.approx(0.0025)
 def test_edge_points_include_roptram_sequence_endpoint():
     vi_starts = 0.08 + np.arange(43) * 0.005
     dataframe = pd.DataFrame(
