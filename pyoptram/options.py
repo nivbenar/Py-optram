@@ -5,7 +5,6 @@
 from math import isfinite
 from numbers import Real
 
-
 _UNSET = object()
 
 

@@ -6,7 +6,6 @@ import numpy as np
 
 from .options import _UNSET, get_optram_option
 
-
 SUPPORTED_VEGETATION_INDICES = ("NDVI", "SAVI", "MSAVI", "CI", "BSCI")
 
 

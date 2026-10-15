@@ -10,9 +10,9 @@ Run this after storing credentials once with store_cdse_credentials().
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
-import pyoptram as op
 from shapely.geometry import box
 
+import pyoptram as op
 
 aoi = gpd.GeoDataFrame(
     geometry=[box(-114.75, 32.55, -114.45, 32.75)],

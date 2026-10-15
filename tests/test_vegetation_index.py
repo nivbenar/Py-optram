@@ -1,6 +1,9 @@
 import numpy as np
 import pytest
+
 from pyoptram import calculate_vi
+
+
 def _scale(band, scale_factor=2**15):
     return 255 * (band - np.nanmin(band)) / scale_factor
 def _stack():

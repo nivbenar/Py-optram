@@ -3,9 +3,12 @@ import inspect
 import numpy as np
 import pandas as pd
 import pytest
+
 from pyoptram import optram_wetdry_coefficients, plot_vi_str_cloud
 from pyoptram.soil_moisture import _parse_coefficients
 from pyoptram.trapezoid import _edge_points
+
+
 def _fitting_dataframe():
     rng = np.random.default_rng(42)
     vi = rng.uniform(0.05, 0.85, 20_000)

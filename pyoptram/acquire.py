@@ -2,15 +2,15 @@
 # Stores CDSE credentials, searches the Sentinel-2 L2A catalog, and downloads
 # vegetation-index, STR, and BOA rasters for OPTRAM workflows.
 
-from datetime import datetime, timedelta
-from importlib.resources import files
-from pathlib import Path
 import csv
 import json
 import math
 import os
 import platform
 import warnings
+from datetime import datetime, timedelta
+from importlib.resources import files
+from pathlib import Path
 
 import geopandas as gpd
 import requests
@@ -18,7 +18,6 @@ import s2rst
 from shapely.geometry import mapping, shape
 
 from .options import _UNSET, _resolve_optram_option, get_optram_option
-
 
 TOKEN_URL = (
     "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/"

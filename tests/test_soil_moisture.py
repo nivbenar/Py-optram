@@ -1,12 +1,13 @@
 import numpy as np
 import pandas as pd
-import pytest
+
 from pyoptram import (
     calculate_soil_moisture,
-    optram_calculate_soil_moisture,
     optram_options,
 )
 from pyoptram.soil_moisture import _parse_coefficients
+
+
 def test_imports_roptram_linear_csv_without_changing_values(tmp_path):
     values = [-0.154980123174297, 3.31268567825634, -0.278092260372729, 6.78590775191129]
     table = pd.DataFrame(

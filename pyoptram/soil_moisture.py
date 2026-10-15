@@ -10,7 +10,6 @@ import rasterio
 
 from .options import _UNSET, get_optram_option
 
-
 ### Input and coefficient helpers
 
 ### Normalize one path or an iterable of paths to a non-empty list.

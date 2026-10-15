@@ -1,6 +1,9 @@
 import numpy as np
 import pytest
+
 from pyoptram import calculate_vi, optram_options
+
+
 @pytest.fixture(autouse=True)
 def reset_options():
     optram_options(reset=True, show_opts=False)

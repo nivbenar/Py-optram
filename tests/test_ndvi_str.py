@@ -4,7 +4,9 @@ import pandas as pd
 import pytest
 import rasterio
 from rasterio.transform import from_origin
-from pyoptram import optram_ndvi_str, optram_wetdry_coefficients
+
+from pyoptram import optram_ndvi_str
+
 _TRANSFORM = from_origin(10.0, 20.0, 1.0, 1.0)
 def _write_single_band_tif(path, array, dtype="float32"):
     profile = {

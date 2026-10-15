@@ -10,8 +10,8 @@ from .acquire import (
     store_cdse_credentials_from_file,
 )
 from .ndvi_str import optram_ndvi_str
-from .optram import optram
 from .options import optram_options
+from .optram import optram
 from .soil_moisture import calculate_soil_moisture, optram_calculate_soil_moisture
 from .str_transform_calculations import calculate_str, optram_calculate_str
 from .trapezoid import optram_wetdry_coefficients, plot_vi_str_cloud

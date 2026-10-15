@@ -9,7 +9,6 @@ import pandas as pd
 
 from .options import _UNSET, _resolve_optram_option
 
-
 ### Edge-point preparation
 
 ### Keep finite VI/STR values and positive STR values.

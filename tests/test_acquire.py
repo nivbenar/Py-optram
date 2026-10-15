@@ -1,8 +1,9 @@
 import json
-from pathlib import Path
+
 import geopandas as gpd
 import pytest
 from shapely.geometry import box, shape
+
 import pyoptram.acquire as acquire
 from pyoptram.acquire import load_evalscript
 
