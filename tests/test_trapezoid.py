@@ -161,3 +161,43 @@ def test_plot_defaults_show_edge_points_like_roptram():
     )
     ax = plot_vi_str_cloud(full_df, edges_df)
     assert len(ax.collections) == 3
+
+
+def test_density_plot_omits_empty_bins_and_preserves_edges():
+    import matplotlib.pyplot as plt
+
+    plt.switch_backend("Agg")
+    full_df = pd.DataFrame(
+        {
+            "VI": [0.1, 0.1, 0.1, 0.8],
+            "STR": [1.0, 1.0, 1.0, 2.0],
+        }
+    )
+    edges_df = pd.DataFrame(
+        {
+            "VI": [0.1, 0.8],
+            "STR_wet": [1.1, 2.1],
+            "STR_dry": [0.8, 1.8],
+            "STR_wet_fit": [1.1, 2.1],
+            "STR_dry_fit": [0.8, 1.8],
+        }
+    )
+
+    _, plot_ax = plt.subplots()
+    ax = plot_vi_str_cloud(
+        full_df,
+        edges_df,
+        plot_colors="density",
+        sample=False,
+        ax=plot_ax,
+    )
+
+    hexbin_counts = ax.collections[0].get_array()
+    assert np.all(hexbin_counts >= 1)
+    assert hexbin_counts.sum() == len(full_df)
+    assert len(ax.lines) == 2
+    assert np.array_equal(ax.lines[0].get_ydata(), edges_df["STR_dry_fit"])
+    assert np.array_equal(ax.lines[1].get_ydata(), edges_df["STR_wet_fit"])
+    assert len(ax.collections) == 3
+    assert ax.collections[1].get_paths()[0].vertices.shape[0] > 0
+    assert ax.collections[2].get_paths()[0].vertices.shape[0] > 0

@@ -353,7 +353,13 @@ def plot_vi_str_cloud(
         _, ax = plt.subplots(figsize=(7, 5))
 
     if plot_colors == "density":
-        points = ax.hexbin(plot_df[vi_col], plot_df[str_col], gridsize=120, cmap="viridis")
+        points = ax.hexbin(
+            plot_df[vi_col],
+            plot_df[str_col],
+            gridsize=120,
+            cmap="viridis",
+            mincnt=1,
+        )
         plt.colorbar(points, ax=ax, label="count")
     elif plot_colors in ("contour", "contours"):
         ax.scatter(plot_df[vi_col], plot_df[str_col], color="green", alpha=0.2, s=0.3)
