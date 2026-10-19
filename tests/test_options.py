@@ -1,7 +1,10 @@
+import inspect
+
 import numpy as np
 import pytest
 
-from pyoptram import calculate_vi, optram_options
+import pyoptram
+from pyoptram import calculate_vi, optram_ndvi_str, optram_options
 
 
 @pytest.fixture(autouse=True)
@@ -9,6 +12,27 @@ def reset_options():
     optram_options(reset=True, show_opts=False)
     yield
     optram_options(reset=True, show_opts=False)
+
+
+def test_public_signatures_display_current_option_for_sentinel_defaults():
+    signatures = {
+        name: str(inspect.signature(getattr(pyoptram, name)))
+        for name in pyoptram.__all__
+    }
+
+    assert all("<object object at" not in signature for signature in signatures.values())
+
+    ndvi_str_parameters = inspect.signature(optram_ndvi_str).parameters
+    for name in (
+        "rm_low_vi",
+        "rm_hi_str",
+        "feature_id_col",
+        "plot_colors",
+        "max_tbl_size",
+    ):
+        assert repr(ndvi_str_parameters[name].default) == "CURRENT_OPTION"
+
+
 def test_implemented_option_defaults_match_roptram_zzz():
     assert optram_options(show_opts=False) == {
         "veg_index": "NDVI",
@@ -65,5 +89,18 @@ def test_configured_vegetation_index_is_used_when_argument_is_omitted():
     )
     optram_options("veg_index", "SAVI", show_opts=False)
     configured = calculate_vi(stack)
-    explicit = calculate_vi(stack, veg_index="SAVI")
-    np.testing.assert_allclose(configured, explicit, equal_nan=True)
+    explicit_savi = calculate_vi(stack, veg_index="SAVI")
+    explicit_ndvi = calculate_vi(stack, veg_index="NDVI")
+
+    np.testing.assert_allclose(configured, explicit_savi, equal_nan=True)
+    assert not np.allclose(configured, explicit_ndvi, equal_nan=True)
+
+
+def test_explicit_falsey_and_none_option_values_are_not_treated_as_omitted():
+    optram_options("rm.low.vi", True, show_opts=False)
+    optram_options("rm.low.vi", False, show_opts=False)
+    assert optram_options(show_opts=False)["rm.low.vi"] is False
+
+    optram_options("tileid", "32TQM", show_opts=False)
+    optram_options("tileid", None, show_opts=False)
+    assert optram_options(show_opts=False)["tileid"] is None

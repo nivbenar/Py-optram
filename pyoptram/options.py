@@ -5,7 +5,13 @@
 from math import isfinite
 from numbers import Real
 
-_UNSET = object()
+
+class _UnsetType:
+    def __repr__(self):
+        return "CURRENT_OPTION"
+
+
+_UNSET = _UnsetType()
 
 
 ### Return whether a value is a finite, non-boolean real number.
