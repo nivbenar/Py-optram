@@ -163,6 +163,83 @@ def test_plot_defaults_show_edge_points_like_roptram():
     assert len(ax.collections) == 3
 
 
+def _plot_dataframes():
+    full_df = pd.DataFrame({"VI": [0.1, 0.2], "STR": [1.0, 1.2]})
+    edges_df = pd.DataFrame(
+        {
+            "VI": [0.1, 0.2],
+            "STR_wet": [1.1, 1.3],
+            "STR_dry": [0.8, 0.9],
+            "STR_wet_fit": [1.1, 1.3],
+            "STR_dry_fit": [0.8, 0.9],
+        }
+    )
+    return full_df, edges_df
+
+
+def test_plot_without_output_path_does_not_save(tmp_path, monkeypatch):
+    import matplotlib.pyplot as plt
+    from matplotlib.axes import Axes
+
+    plt.switch_backend("Agg")
+    monkeypatch.chdir(tmp_path)
+    full_df, edges_df = _plot_dataframes()
+
+    ax = plot_vi_str_cloud(full_df, edges_df)
+
+    assert isinstance(ax, Axes)
+    assert not list(tmp_path.glob("*.png"))
+    plt.close(ax.figure)
+
+
+def test_plot_saves_non_empty_png(tmp_path):
+    import matplotlib.pyplot as plt
+    from matplotlib.axes import Axes
+
+    plt.switch_backend("Agg")
+    full_df, edges_df = _plot_dataframes()
+    output_path = tmp_path / "cloud.png"
+
+    ax = plot_vi_str_cloud(full_df, edges_df, output_path=output_path)
+
+    assert isinstance(ax, Axes)
+    assert output_path.is_file()
+    assert output_path.stat().st_size > 0
+    plt.close(ax.figure)
+
+
+def test_plot_creates_output_parent_directories(tmp_path):
+    import matplotlib.pyplot as plt
+
+    plt.switch_backend("Agg")
+    full_df, edges_df = _plot_dataframes()
+    output_path = tmp_path / "nested" / "plots" / "cloud.png"
+
+    ax = plot_vi_str_cloud(full_df, edges_df, output_path=output_path)
+
+    assert output_path.is_file()
+    assert output_path.stat().st_size > 0
+    plt.close(ax.figure)
+
+
+def test_plot_returns_supplied_axes(tmp_path):
+    import matplotlib.pyplot as plt
+
+    plt.switch_backend("Agg")
+    full_df, edges_df = _plot_dataframes()
+    _, supplied_ax = plt.subplots()
+
+    returned_ax = plot_vi_str_cloud(
+        full_df,
+        edges_df,
+        ax=supplied_ax,
+        output_path=tmp_path / "cloud.png",
+    )
+
+    assert returned_ax is supplied_ax
+    plt.close(supplied_ax.figure)
+
+
 def test_density_plot_omits_empty_bins_and_preserves_edges():
     import matplotlib.pyplot as plt
 

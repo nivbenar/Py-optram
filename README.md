@@ -194,6 +194,22 @@ Soil moisture defaults to porosity `0.4` and is not clipped, matching
 rOPTRAM's default behavior. Pass `clip=True` explicitly to bound finite output
 to `[0, porosity]`.
 
+### Saving the trapezoid plot
+
+`plot_vi_str_cloud()` returns a Matplotlib Axes for display or further
+customization. It does not write an image when `output_path` is omitted. Pass a
+path to save the figure; missing parent directories are created automatically.
+
+```python
+import pyoptram as op
+
+op.plot_vi_str_cloud(
+    vi_str,
+    edge_points,
+    output_path="outputs/vi_str_trapezoid.png",
+)
+```
+
 ### VI-STR filename pairing
 
 `optram_ndvi_str()` follows an STR-driven matching workflow. It processes STR

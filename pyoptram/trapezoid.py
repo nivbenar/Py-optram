@@ -320,12 +320,16 @@ def plot_vi_str_cloud(
     ax : matplotlib.axes.Axes, optional
         Existing axes; new axes are created when omitted.
     output_path : path-like, optional
-        Image file written at 200 DPI when supplied.
+        Destination image path. When ``None``, no image file is saved. When
+        supplied, missing parent directories are created and the figure is
+        saved at 200 DPI. Matplotlib infers the image format from the file
+        extension.
 
     Returns
     -------
     matplotlib.axes.Axes
-        Axes containing the point cloud and fitted edges.
+        Axes containing the point cloud and fitted edges, whether or not the
+        figure is saved.
 
     Raises
     ------
