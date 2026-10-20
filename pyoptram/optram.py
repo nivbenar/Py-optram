@@ -3,10 +3,12 @@
 import tempfile
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+
 from .acquire import acquire_optram_inputs
 from .ndvi_str import optram_ndvi_str
 from .options import get_optram_option
-from .trapezoid import optram_wetdry_coefficients
+from .trapezoid import optram_wetdry_coefficients, plot_vi_str_cloud
 
 
 def optram(
@@ -23,9 +25,11 @@ def optram(
     directory. Acquisition and scientific options remain owned by the child
     functions and :func:`pyoptram.optram_options`.
 
-    The wrapper prints and returns the wet/dry fitting RMSE dataframe. It does
-    not calculate soil moisture, matching the R wrapper. rOPTRAM's optional
-    openEO backend is not yet implemented in Py-optram.
+    The wrapper saves ``vi_str_trapezoid.png`` in ``data_output_dir``, then
+    prints and returns the wet/dry fitting RMSE dataframe. It does not calculate
+    soil moisture, matching the R wrapper. Automatic plot saving is a
+    Py-optram enhancement; rOPTRAM creates its plot separately. rOPTRAM's
+    optional openEO backend is not yet implemented in Py-optram.
 
     Parameters
     ----------
@@ -37,7 +41,8 @@ def optram(
     s2_output_dir : path-like, optional
         Directory for acquired VI/STR imagery.
     data_output_dir : path-like, optional
-        Directory for the VI-STR Parquet table and wet/dry fitting outputs.
+        Directory for the VI-STR Parquet table, wet/dry fitting outputs, and
+        ``vi_str_trapezoid.png``.
 
     Returns
     -------
@@ -67,10 +72,20 @@ def optram(
         output_parquet=Path(data_output_dir) / "VI_STR_data.parquet",
         features=aoi,
     )
-    rmse_df = optram_wetdry_coefficients(
+    rmse_df, _, edges_df = optram_wetdry_coefficients(
         vi_str,
         output_dir=data_output_dir,
+        return_outputs=True,
     )
+
+    plot_path = Path(data_output_dir) / "vi_str_trapezoid.png"
+    plot_ax = plot_vi_str_cloud(
+        vi_str,
+        edges_df,
+        output_path=plot_path,
+    )
+    plt.close(plot_ax.figure)
+    print(f"Trapezoid plot saved to: {plot_path}")
 
     print("RMSE for fitted trapezoid:")
     print(rmse_df)

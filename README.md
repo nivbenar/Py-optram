@@ -82,7 +82,8 @@ For the supported CDSE path, `optram()`:
 2. discovers the resulting files from their output directories;
 3. constructs `VI_STR_data.parquet`;
 4. fits the wet and dry edges;
-5. prints and returns the wet/dry RMSE dataframe.
+5. saves `vi_str_trapezoid.png` in `data_output_dir`;
+6. prints and returns the wet/dry RMSE dataframe.
 
 Matching `rOPTRAM::optram()`, it does **not** calculate soil moisture. Soil
 moisture is available through the explicit lower-level API described below.
@@ -199,6 +200,8 @@ to `[0, porosity]`.
 `plot_vi_str_cloud()` returns a Matplotlib Axes for display or further
 customization. It does not write an image when `output_path` is omitted. Pass a
 path to save the figure; missing parent directories are created automatically.
+The high-level `optram()` wrapper supplies an output path automatically and
+saves `vi_str_trapezoid.png` in `data_output_dir`.
 
 ```python
 import pyoptram as op
@@ -273,12 +276,15 @@ results/
 ├── VI_STR_data.parquet
 ├── trapezoid_points.csv
 ├── wetdry_coefficients.csv
-└── wetdry_rmse.csv
+├── wetdry_rmse.csv
+└── vi_str_trapezoid.png
 ```
 
 Manual fitting with `export_roptram=True` additionally writes
 `coefficients_lin.csv` or `coefficients_pol.csv`. Manual soil-moisture
 calculation writes `SM_*.tif` files to its requested output directory.
+The high-level wrapper also writes `vi_str_trapezoid.png` to the results
+directory.
 
 ## rOPTRAM compatibility notes
 

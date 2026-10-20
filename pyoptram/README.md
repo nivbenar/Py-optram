@@ -52,9 +52,10 @@ rmse = optram(
 )
 
 # optram() acquires VI/STR imagery, creates the VI-STR table, fits wet/dry
-# edges, and prints and returns RMSE. Matching rOPTRAM::optram(), it does not
-# calculate soil moisture. The current wrapper supports CDSE; openEO backend
-# parity remains future work.
+# edges, saves results/vi_str_trapezoid.png, and prints and returns RMSE. The
+# automatic plot is a Py-optram enhancement. Matching rOPTRAM::optram(), the
+# wrapper does not calculate soil moisture. The current wrapper supports CDSE;
+# openEO backend parity remains future work.
 
 acquired = acquire_optram_inputs(
     aoi=aoi,
