@@ -68,16 +68,25 @@ def _check_same_grid(reference_profile, other_profile, reference_path, other_pat
 ### Parse a timestamp and Sentinel tile from a pyOPTRAM filename.
 def _file_metadata(path):
     name = Path(path).stem
-    timestamp_match = re.search(
+    compact_timestamp_match = re.search(r"_(\d{8})T(\d{6})(?:_|$)", name)
+    legacy_timestamp_match = re.search(
         r"_(\d{4}-\d{2}-\d{2})(?:T(\d{2}-\d{2}-\d{2}(?:\.\d+)?))?",
         name,
     )
     tile_match = re.search(r"_T(\d{2}[A-Z]{3})(?:_|$)", name)
 
     timestamp = pd.NaT
-    if timestamp_match:
-        date_text = timestamp_match.group(1)
-        time_text = (timestamp_match.group(2) or "00-00-00").replace("-", ":")
+    if compact_timestamp_match:
+        timestamp = pd.to_datetime(
+            "".join(compact_timestamp_match.groups()),
+            format="%Y%m%d%H%M%S",
+            utc=True,
+        )
+    elif legacy_timestamp_match:
+        date_text = legacy_timestamp_match.group(1)
+        time_text = (legacy_timestamp_match.group(2) or "00-00-00").replace(
+            "-", ":"
+        )
         timestamp = pd.to_datetime(f"{date_text} {time_text}", utc=True)
 
     month = timestamp.month if pd.notna(timestamp) else pd.NA

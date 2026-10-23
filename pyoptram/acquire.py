@@ -370,7 +370,8 @@ def _scene_tile(scene):
     for key in ("s2:mgrs_tile", "grid:code"):
         value = properties.get(key)
         if value:
-            return str(value).replace("MGRS-", "").upper()
+            tile = str(value).upper().removeprefix("MGRS-")
+            return tile.removeprefix("T")
 
     scene_id = scene.get("id", "")
     parts = scene_id.split("_")
@@ -379,6 +380,26 @@ def _scene_tile(scene):
             return part[1:].upper()
 
     return None
+
+
+### Build a compact, shared filename for one scene product.
+def _scene_output_filename(product, scene):
+    scene_datetime = scene["properties"]["datetime"]
+    timestamp = datetime.fromisoformat(scene_datetime.replace("Z", "+00:00"))
+    tile = _scene_tile(scene)
+    if tile is None:
+        raise ValueError(
+            f"Cannot create an output filename for scene {scene['id']!r}: "
+            "Sentinel-2 tile ID is missing"
+        )
+    return f"{product}_{timestamp:%Y%m%dT%H%M%S}_T{tile}.tif"
+
+
+### Build the former SAFE-derived filename so existing downloads can be reused.
+def _legacy_scene_output_filename(product, scene):
+    scene_datetime = scene["properties"]["datetime"]
+    safe_time = scene_datetime.replace(":", "-").replace("/", "-")
+    return f"{product}_{safe_time}_{scene['id']}.tif"
 
 
 ### Keep only scenes from the requested MGRS tile.
@@ -913,12 +934,30 @@ def acquire_optram_inputs(
     results = {veg_index: [], "STR": [], "BOA": [], "scenes": []}
 
     for scene in scenes:
-        scene_id = scene["id"]
         scene_datetime = scene["properties"]["datetime"]
-        safe_time = scene_datetime.replace(":", "-").replace("/", "-")
+        products = {
+            veg_index: folders["vi"],
+            "STR": folders["str"],
+        }
+        if not only_vi_str and "boa" in folders:
+            products["BOA"] = folders["boa"]
 
-        vi_path = folders["vi"] / f"{veg_index}_{safe_time}_{scene_id}.tif"
-        str_path = folders["str"] / f"STR_{safe_time}_{scene_id}.tif"
+        compact_paths = {
+            product: folder / _scene_output_filename(product, scene)
+            for product, folder in products.items()
+        }
+        legacy_paths = {
+            product: folder / _legacy_scene_output_filename(product, scene)
+            for product, folder in products.items()
+        }
+        paths = (
+            legacy_paths
+            if any(path.exists() for path in legacy_paths.values())
+            else compact_paths
+        )
+
+        vi_path = paths[veg_index]
+        str_path = paths["STR"]
 
         vi_file = download_index(
             aoi_geometry=aoi_geometry,
@@ -949,7 +988,7 @@ def acquire_optram_inputs(
 
         boa_file = None
         if not only_vi_str and "boa" in folders:
-            boa_path = folders["boa"] / f"BOA_{safe_time}_{scene_id}.tif"
+            boa_path = paths["BOA"]
             boa_file = download_index(
                 aoi_geometry=aoi_geometry,
                 scene_datetime=scene_datetime,

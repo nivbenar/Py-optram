@@ -16,7 +16,7 @@ def test_calculate_str_formula_and_non_positive_values():
 
 
 def test_process_boa_file_preserves_declared_nodata(tmp_path):
-    boa_path = tmp_path / "BOA_test.tif"
+    boa_path = tmp_path / "BOA_20240102T102030_T36RXV.tif"
     str_dir = tmp_path / "STR"
     str_dir.mkdir()
 
@@ -37,6 +37,8 @@ def test_process_boa_file_preserves_declared_nodata(tmp_path):
         dst.write(boa)
 
     output_path = process_boa_file(boa_path, str_dir, swir_band=11)
+
+    assert output_path.endswith("STR_20240102T102030_T36RXV.tif")
 
     with rasterio.open(output_path) as src:
         result = src.read(1)

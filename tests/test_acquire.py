@@ -107,9 +107,29 @@ def _scene(number, date="2024-01-02", cloud=1, tile="36RXV", top=1.0):
         "properties": {
             "datetime": f"{date}T10:20:30Z",
             "eo:cloud_cover": cloud,
+            "s2:mgrs_tile": tile,
         },
         "geometry": {"type": "Polygon", "coordinates": [_ring(0, 0, 1, top)]},
     }
+
+
+@pytest.mark.parametrize("product", ["NDVI", "SAVI", "MSAVI", "STR", "BOA"])
+def test_scene_output_filename_uses_compact_timestamp_and_tile(product):
+    assert acquire._scene_output_filename(product, _scene(1)) == (
+        f"{product}_20240102T102030_T36RXV.tif"
+    )
+
+
+@pytest.mark.parametrize("tile", ["29SQB", "T29SQB", "MGRS-29SQB"])
+def test_scene_output_filename_uses_exactly_one_tile_prefix(tile):
+    scene = _scene(1)
+    scene["properties"]["s2:mgrs_tile"] = tile
+
+    assert acquire._scene_output_filename("NDVI", scene) == (
+        "NDVI_20240102T102030_T29SQB.tif"
+    )
+
+
 class _CatalogResponse:
     status_code = 200
     text = ""
@@ -300,6 +320,12 @@ def test_acquisition_defaults_match_roptram(tmp_path, acquisition_mocks):
     assert search_calls[0]["period"] == "full"
     assert search_calls[0]["limit"] is None
     assert [call["script_name"] for call in downloads] == ["NDVI", "STR", "BOA"]
+    assert [call["output_path"].name for call in downloads] == [
+        "NDVI_20240102T102030_T36RXV.tif",
+        "STR_20240102T102030_T36RXV.tif",
+        "BOA_20240102T102030_T36RXV.tif",
+    ]
+    assert len({call["output_path"].name.split("_", 1)[1] for call in downloads}) == 1
     assert downloads[0]["scl_mask"] is True
     assert all(call["resolution"] == 10 for call in downloads)
     assert all(call["width"] is None and call["height"] is None for call in downloads)
@@ -326,3 +352,27 @@ def test_save_image_list_contains_filtered_scenes_before_downloads(
     assert observed
     assert observed[0]["type"] == "FeatureCollection"
     assert observed[0]["features"][0]["areaCoverage"] == 100.0
+
+
+def test_acquisition_reuses_legacy_filename_family(tmp_path, acquisition_mocks):
+    _, downloads = acquisition_mocks
+    scene = {
+        "id": "S2_TEST_T36RXV",
+        "properties": {"datetime": "2024-01-02T10:20:30Z"},
+    }
+    legacy_vi = tmp_path / "NDVI" / acquire._legacy_scene_output_filename(
+        "NDVI", scene
+    )
+    legacy_vi.parent.mkdir(parents=True)
+    legacy_vi.touch()
+
+    acquire.acquire_optram_inputs(
+        aoi=_aoi(34.0, 31.0, 34.1, 31.1),
+        from_date="2024-01-01",
+        to_date="2024-01-03",
+        output_dir=tmp_path,
+        client_id="id",
+        client_secret="secret",
+    )
+
+    assert all("S2_TEST_T36RXV" in call["output_path"].name for call in downloads)

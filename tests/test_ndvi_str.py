@@ -147,6 +147,30 @@ def test_optram_ndvi_str_parses_roptram_date_and_tile_filename(tmp_path):
     assert dataframe.loc[0, "TimestampUTC"] == pd.Timestamp("2022-11-11T00:00:00Z")
     assert dataframe.loc[0, "Month"] == 11
     assert dataframe.loc[0, "Tile"] == "36RXV"
+
+
+@pytest.mark.parametrize(
+    "suffix, expected_timestamp",
+    [
+        ("20240102T102030_T36RXV", "2024-01-02 10:20:30+00:00"),
+        (
+            "2024-01-02T10-20-30.123Z_S2A_TEST_T36RXV",
+            "2024-01-02 10:20:30.123+00:00",
+        ),
+    ],
+)
+def test_new_and_legacy_filenames_pair_and_parse(
+    tmp_path, suffix, expected_timestamp
+):
+    vi_path = tmp_path / f"NDVI_{suffix}.tif"
+    str_path = tmp_path / f"STR_{suffix}.tif"
+    _write_single_band_tif(vi_path, np.array([[0.5]], dtype=np.float32))
+    _write_single_band_tif(str_path, np.array([[2.0]], dtype=np.float32))
+
+    dataframe = optram_ndvi_str([vi_path], [str_path])
+
+    assert dataframe.loc[0, "TimestampUTC"] == pd.Timestamp(expected_timestamp)
+    assert dataframe.loc[0, "Tile"] == "36RXV"
 def test_optram_ndvi_str_writes_requested_parquet_and_creates_parent(tmp_path):
     vi_path = tmp_path / "NDVI_a.tif"
     str_path = tmp_path / "STR_a.tif"

@@ -1,8 +1,11 @@
 import numpy as np
 import pandas as pd
+import rasterio
+from rasterio.transform import from_origin
 
 from pyoptram import (
     calculate_soil_moisture,
+    optram_calculate_soil_moisture,
     optram_options,
 )
 from pyoptram.soil_moisture import _parse_coefficients
@@ -77,3 +80,34 @@ def test_soil_moisture_preserves_roptram_observable_na_porosity_behavior():
         porosity=np.nan,
     )
     assert np.isnan(result[0])
+
+
+def test_soil_moisture_replaces_compact_str_prefix(tmp_path):
+    suffix = "20240102T102030_T36RXV.tif"
+    vi_path = tmp_path / f"NDVI_{suffix}"
+    str_path = tmp_path / f"STR_{suffix}"
+    profile = {
+        "driver": "GTiff",
+        "height": 1,
+        "width": 1,
+        "count": 1,
+        "dtype": "float32",
+        "crs": "EPSG:4326",
+        "transform": from_origin(0, 1, 1, 1),
+    }
+    for path, value in ((vi_path, 0.5), (str_path, 1.0)):
+        with rasterio.open(path, "w", **profile) as dst:
+            dst.write(np.array([[value]], dtype=np.float32), 1)
+
+    outputs = optram_calculate_soil_moisture(
+        [vi_path],
+        [str_path],
+        {
+            "method": "linear",
+            "dry": {"intercept": 2.0, "slope": 0.0},
+            "wet": {"intercept": 0.0, "slope": 0.0},
+        },
+        tmp_path / "SM",
+    )
+
+    assert outputs[0].endswith(f"SM_{suffix}")
