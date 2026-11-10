@@ -498,7 +498,6 @@ def search_catalog(
     to_date,
     token,
     max_cloud=_UNSET,
-    limit=None,
     tile=_UNSET,
     area_cover=_UNSET,
     period=_UNSET,
@@ -517,8 +516,6 @@ def search_catalog(
     max_cloud : float, optional
         Strict upper cloud-cover bound. Defaults to the rOPTRAM-compatible
         ``max_cloud`` option, initially 12.
-    limit : int or None, default None
-        Optional Python compatibility cap applied after parity filtering.
     tile : str or None, optional
         Optional five-character MGRS tile identifier.
     area_cover : float, optional
@@ -594,7 +591,7 @@ def search_catalog(
     scenes = covered
     if period == "seasonal":
         scenes = _seasonal_filter(scenes, from_date, to_date)
-    return scenes if limit is None else scenes[:limit]
+    return scenes
 
 
 ### Download one GeoTIFF product through the Sentinel Hub Process API.
@@ -750,10 +747,7 @@ def acquire_optram_inputs(
     max_cloud=_UNSET,
     only_vi_str=_UNSET,
     tile=_UNSET,
-    limit=None,
     resolution=_UNSET,
-    width=None,
-    height=None,
     overwrite=_UNSET,
     scl_mask=_UNSET,
     area_cover=_UNSET,
@@ -788,16 +782,10 @@ def acquire_optram_inputs(
         Skip BOA downloads when true. Defaults to false.
     tile : str or None, optional
         Five-character MGRS tile; defaults to the ``tileid`` option.
-    limit : int or None, default None
-        Optional Python compatibility cap. By default all catalog pages are
-        consumed and no scene-count cap is applied.
     resolution : {10, 20, 60}, optional
         Output resolution in metres; defaults to the current ``resolution``
         option, initially 10. As in rOPTRAM/CDSE, metres are converted to a
         CRS84 angular grid using the AOI centroid latitude.
-    width, height : int, optional
-        Python-specific output-dimension overrides, each limited to 2500.
-        Supplying either selects dimension mode; an omitted value uses 2500.
     overwrite : bool, optional
         Redownload existing outputs; defaults to false.
     scl_mask : bool, optional
@@ -822,7 +810,7 @@ def acquire_optram_inputs(
     Raises
     ------
     ValueError
-        For invalid options, dimensions, dates, unsupported acquisition VIs,
+        For invalid options, dates, unsupported acquisition VIs,
         or unavailable credentials.
     requests.HTTPError
         If authentication, catalog search, or a download fails.
@@ -885,10 +873,7 @@ def acquire_optram_inputs(
         raise ValueError("to_date must be later than from_date")
 
     aoi_geometry = load_aoi(aoi)
-    if width is None and height is None:
-        _resolution_output(aoi_geometry, resolution)
-    else:
-        _dimension_output(width, height)
+    _resolution_output(aoi_geometry, resolution)
 
     explicit_credentials = client_id is not None and client_secret is not None
     if not explicit_credentials:
@@ -919,7 +904,6 @@ def acquire_optram_inputs(
         tile=tile,
         area_cover=area_cover,
         period=period,
-        limit=limit,
     )
 
     if not scenes:
@@ -967,8 +951,6 @@ def acquire_optram_inputs(
             token=token,
             swir_band=swir_band,
             resolution=resolution,
-            width=width,
-            height=height,
             overwrite=overwrite,
             scl_mask=scl_mask,
         )
@@ -981,8 +963,6 @@ def acquire_optram_inputs(
             token=token,
             swir_band=swir_band,
             resolution=resolution,
-            width=width,
-            height=height,
             overwrite=overwrite,
         )
 
@@ -997,8 +977,6 @@ def acquire_optram_inputs(
                 token=token,
                 swir_band=swir_band,
                 resolution=resolution,
-                width=width,
-                height=height,
                 overwrite=overwrite,
             )
 

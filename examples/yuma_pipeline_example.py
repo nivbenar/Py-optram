@@ -30,9 +30,6 @@ results = op.acquire_optram_inputs(
     swir_band=12,
     max_cloud=20,
     only_vi_str=True,
-    limit=8,
-    width=1024,
-    height=1024,
 )
 
 print("NDVI files:", len(results["NDVI"]))

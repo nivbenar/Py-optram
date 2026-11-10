@@ -291,8 +291,6 @@ directory.
 Behavioral parity is the project priority, but full rOPTRAM feature parity is
 not yet claimed. Current documented differences include:
 
-- Python's optional Process API `width`/`height` mode is an additional
-  compatibility path; the normal path uses rOPTRAM/CDSE-style resolution.
 - `save_img_list=True` writes a GeoJSON `image_list.json`; rOPTRAM writes an
   RDS object.
 - Area coverage uses `s2rst` rather than R `sf`/S2. Tiny floating-point

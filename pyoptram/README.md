@@ -101,8 +101,7 @@ search and download, while the original features remain available for VI-STR
 feature labeling, matching rOPTRAM. Date ranges must satisfy
 `to_date > from_date`. Acquisition resolution defaults to 10 metres and accepts
 10, 20, or 60 metres. Matching rOPTRAM and `CDSE::GetImage()`, metre resolution
-is converted to a CRS84 angular grid at the AOI latitude. Explicit `width` and
-`height` remain available as Python-specific Process API overrides.
+is converted to a CRS84 angular grid at the AOI latitude.
 
 Catalog search consumes every CDSE page by default. Following rOPTRAM, scenes
 are filtered client-side in this order: strict cloud cover (`< max_cloud`),

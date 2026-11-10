@@ -1,3 +1,4 @@
+import inspect
 import json
 
 import geopandas as gpd
@@ -10,6 +11,12 @@ from pyoptram.acquire import load_evalscript
 
 def _aoi(minx=0.0, miny=0.0, maxx=1.0, maxy=1.0, crs=4326):
     return gpd.GeoDataFrame(geometry=[box(minx, miny, maxx, maxy)], crs=crs)
+
+
+def test_acquisition_signature_excludes_python_only_dimensions():
+    parameters = inspect.signature(acquire.acquire_optram_inputs).parameters
+    assert "width" not in parameters
+    assert "height" not in parameters
 
 
 def test_load_aoi_accepts_geodataframe_and_unions_features():
@@ -318,7 +325,7 @@ def test_acquisition_defaults_match_roptram(tmp_path, acquisition_mocks):
     assert search_calls[0]["max_cloud"] == 12
     assert search_calls[0]["area_cover"] == 99.0
     assert search_calls[0]["period"] == "full"
-    assert search_calls[0]["limit"] is None
+    assert "limit" not in search_calls[0]
     assert [call["script_name"] for call in downloads] == ["NDVI", "STR", "BOA"]
     assert [call["output_path"].name for call in downloads] == [
         "NDVI_20240102T102030_T36RXV.tif",
@@ -328,7 +335,7 @@ def test_acquisition_defaults_match_roptram(tmp_path, acquisition_mocks):
     assert len({call["output_path"].name.split("_", 1)[1] for call in downloads}) == 1
     assert downloads[0]["scl_mask"] is True
     assert all(call["resolution"] == 10 for call in downloads)
-    assert all(call["width"] is None and call["height"] is None for call in downloads)
+    assert all("width" not in call and "height" not in call for call in downloads)
 def test_save_image_list_contains_filtered_scenes_before_downloads(
     monkeypatch, tmp_path, acquisition_mocks
 ):
